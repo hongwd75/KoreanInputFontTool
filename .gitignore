@@ -1,0 +1,15 @@
+.vs/
+bin/
+obj/
+dist/
+Native/KoreanRenderHook32/obj/
+Assets/KoreanRenderHook32-v*.dll
+Assets/DaocHangulExtended.ttf
+Assets/DaocHangulPrecomposed.ttf
+Assets/AppIcon.png
+LegacyMainForm.resx
+*.user
+*.suo
+*.VC.db
+**/__pycache__/
+*.py[cod]

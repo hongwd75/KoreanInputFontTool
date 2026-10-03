@@ -1,0 +1,9 @@
+* text=auto
+
+*.br binary
+*.ico binary
+*.ttf binary
+*.png binary
+*.dll binary
+
+third_party/D2CodingLigature/OFL.txt whitespace=-trailing-space

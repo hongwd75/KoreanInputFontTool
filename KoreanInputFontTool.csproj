@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>KoreanInputFontTool</AssemblyName>
+    <RootNamespace>KoreanInputFontTool</RootNamespace>
+    <PlatformTarget>x64</PlatformTarget>
+    <Platforms>x64</Platforms>
+    <Configurations>Release</Configurations>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <PublishTrimmed>false</PublishTrimmed>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
+    <Version>18.9.0</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="DaocLegacyCodepointEncoder.cs" />
+    <Compile Include="HangulKeyboardLayout.cs" />
+    <Compile Include="LegacyGlyphMode.cs" />
+    <Compile Include="RegistrySettings.cs" />
+    <Compile Include="LegacyHangulComposer.cs" />
+    <Compile Include="LegacyKeyboardHook.cs" />
+    <Compile Include="LegacyRenderDiffer.cs" />
+    <Compile Include="LegacyRenderHookService.cs" />
+    <Compile Include="AdministratorBootstrap.cs" />
+    <Compile Include="LegacyMainForm.cs" />
+    <Compile Include="ChatFontInstaller.cs" />
+    <Compile Include="Program.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\DaocLegacyFonts.br" LogicalName="KoreanInputFontTool.Assets.DaocLegacyFonts.br" />
+    <EmbeddedResource Include="Assets\KoreanRenderHook32-v18_9.dll.br" LogicalName="KoreanInputFontTool.Native.KoreanRenderHook32.dll.br" />
+  </ItemGroup>
+
+  <Target Name="RequireReleaseConfiguration" BeforeTargets="PrepareForBuild" Condition="'$(Configuration)' != 'Release'">
+    <Error Text="KoreanInputFontTool은 Release/x64 구성으로만 빌드할 수 있습니다. -c Release -p:Platform=x64를 사용하세요." />
+  </Target>
+
+  <ItemGroup>
+    <Folder Include="docs\" />
+  </ItemGroup>
+</Project>

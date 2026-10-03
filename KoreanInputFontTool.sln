@@ -1,0 +1,25 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KoreanInputFontTool", "KoreanInputFontTool.csproj", "{DBD1676D-75B3-4E69-9F8F-3769410161B5}"
+	ProjectSection(ProjectDependencies) = postProject
+		{A719327B-8D89-4C52-9A57-72C92074C79B} = {A719327B-8D89-4C52-9A57-72C92074C79B}
+	EndProjectSection
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "KoreanRenderHook32", "Native\KoreanRenderHook32\KoreanRenderHook32.vcxproj", "{A719327B-8D89-4C52-9A57-72C92074C79B}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{DBD1676D-75B3-4E69-9F8F-3769410161B5}.Release|x64.ActiveCfg = Release|x64
+		{DBD1676D-75B3-4E69-9F8F-3769410161B5}.Release|x64.Build.0 = Release|x64
+		{A719327B-8D89-4C52-9A57-72C92074C79B}.Release|x64.ActiveCfg = Release|Win32
+		{A719327B-8D89-4C52-9A57-72C92074C79B}.Release|x64.Build.0 = Release|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
