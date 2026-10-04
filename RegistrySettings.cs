@@ -132,7 +132,9 @@ internal static class RegistrySettings
                           TranslationChannel.Group |
                           TranslationChannel.Whisper |
                           TranslationChannel.Say);
-                var storedChannels = channelValue == channelsBeforeLfgWasAdded
+                const int channelsBeforeAllianceWasAdded = 31;
+                var storedChannels = channelValue == channelsBeforeLfgWasAdded ||
+                    channelValue == channelsBeforeAllianceWasAdded
                     ? TranslationChannel.All
                     : (TranslationChannel)channelValue & TranslationChannel.PersistedMask;
                 if (storedChannels.HasFlag(TranslationChannel.FullTranslation))

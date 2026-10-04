@@ -1,4 +1,4 @@
-namespace KoreanInputFontTool;
+﻿namespace KoreanInputFontTool;
 
 public sealed class LegacyMainForm : Form
 {
@@ -15,7 +15,7 @@ public sealed class LegacyMainForm : Form
 
     public LegacyMainForm()
     {
-        Text = "KoreanInputFontTool v18.35 x64 - 한글 입력";
+        Text = "KoreanInputFontTool v18.44 x64 - 한글 입력";
         var executableIcon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         if (executableIcon is not null)
             Icon = executableIcon;

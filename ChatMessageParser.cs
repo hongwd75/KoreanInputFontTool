@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 
 namespace KoreanInputFontTool;
 
@@ -10,7 +10,7 @@ internal readonly record struct ParsedChatMessage(
 internal static partial class ChatMessageParser
 {
     [GeneratedRegex(
-        @"^\s*(?:\[(?<channel>Guild|Group|Whisper|Say|LFG)\]\s*[^:]+?\s*:\s*|(?<sender>[^,\r\n]+?)\s+(?<verb>sends|says),\s*)(?<message>.+?)\s*$",
+        @"^\s*(?:\[(?<channel>Guild|Alliance|Group|Party|Whisper|Say|LFG)\]\s*[^:]+?\s*:\s*|(?<sender>[^,\r\n]+?)\s+(?<verb>sends|says),\s*)(?<message>.+?)\s*$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex ChatLinePattern();
 
@@ -72,7 +72,8 @@ internal static partial class ChatMessageParser
             : match.Groups["channel"].Value.ToUpperInvariant() switch
         {
             "GUILD" => TranslationChannel.Guild,
-            "GROUP" => TranslationChannel.Group,
+            "ALLIANCE" => TranslationChannel.Alliance,
+            "GROUP" or "PARTY" => TranslationChannel.Group,
             "WHISPER" => TranslationChannel.Whisper,
             "SAY" => TranslationChannel.Say,
             "LFG" => TranslationChannel.Lfg,

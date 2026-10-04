@@ -88,6 +88,34 @@ namespace
     }
 }
 
+std::string KoreanRenderHook::EncodeLegacyChatText(const wchar_t* text, int length)
+{
+    std::string output;
+    for (int index = 0; index < length; ++index)
+    {
+        const wchar_t value = text[index];
+        if (value >= 0xAC00 && value <= 0xD7A3)
+        {
+            const int syllable = value - 0xAC00;
+            const int initial = syllable / (21 * 28);
+            const int medial = (syllable / 28) % 21;
+            const int finalIndex = syllable % 28;
+            output.push_back(static_cast<char>(0xB0 + initial));
+            output.push_back(static_cast<char>(finalIndex != 0 ? 0xC3 + medial :
+                medial < 16 ? 0xA0 + medial : 0xF4 + medial - 16));
+            if (finalIndex != 0)
+                output.push_back(static_cast<char>(0xD8 + finalIndex - 1));
+        }
+        else
+        {
+            char bytes[2] = {};
+            const int count = ::WideCharToMultiByte(1252, 0, &value, 1, bytes, 2, "?", nullptr);
+            output.append(bytes, count > 0 ? count : 0);
+        }
+    }
+    return output;
+}
+
 bool KoreanRenderHook::RecomposeLegacyText(
     const char* text,
     int length,

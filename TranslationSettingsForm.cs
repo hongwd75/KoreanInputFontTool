@@ -15,6 +15,7 @@ internal sealed class TranslationSettingsForm : Form
     private readonly Label endpointLabel = CreateFieldLabel("서버 주소");
     private readonly CheckBox fullTranslationCheckBox = new() { Text = "전체번역", AutoSize = true };
     private readonly CheckBox guildCheckBox = new() { Text = "길드", AutoSize = true };
+    private readonly CheckBox allianceCheckBox = new() { Text = "동맹", AutoSize = true };
     private readonly CheckBox groupCheckBox = new() { Text = "그룹", AutoSize = true };
     private readonly CheckBox whisperCheckBox = new() { Text = "귓속말", AutoSize = true };
     private readonly CheckBox sayCheckBox = new() { Text = "일반 대화", AutoSize = true };
@@ -104,6 +105,7 @@ internal sealed class TranslationSettingsForm : Form
         endpointTextBox.Text = options.Endpoint;
         fullTranslationCheckBox.Checked = options.Channels.HasFlag(TranslationChannel.FullTranslation);
         guildCheckBox.Checked = options.Channels.HasFlag(TranslationChannel.Guild);
+        allianceCheckBox.Checked = options.Channels.HasFlag(TranslationChannel.Alliance);
         groupCheckBox.Checked = options.Channels.HasFlag(TranslationChannel.Group);
         whisperCheckBox.Checked = options.Channels.HasFlag(TranslationChannel.Whisper);
         sayCheckBox.Checked = options.Channels.HasFlag(TranslationChannel.Say);
@@ -145,6 +147,8 @@ internal sealed class TranslationSettingsForm : Form
             var channels = TranslationChannel.None;
             if (guildCheckBox.Checked)
                 channels |= TranslationChannel.Guild;
+            if (allianceCheckBox.Checked)
+                channels |= TranslationChannel.Alliance;
             if (groupCheckBox.Checked)
                 channels |= TranslationChannel.Group;
             if (whisperCheckBox.Checked)
@@ -258,11 +262,12 @@ internal sealed class TranslationSettingsForm : Form
         {
             Dock = DockStyle.Top,
             AutoSize = true,
-            WrapContents = false
+            WrapContents = true
         };
         channelPanel.Controls.AddRange([
             fullTranslationCheckBox,
             guildCheckBox,
+            allianceCheckBox,
             groupCheckBox,
             whisperCheckBox,
             sayCheckBox,
@@ -299,6 +304,7 @@ internal sealed class TranslationSettingsForm : Form
         fullTranslationCheckBox.Enabled = enabled;
         var individualChannelsEnabled = enabled && !fullTranslationCheckBox.Checked;
         guildCheckBox.Enabled = individualChannelsEnabled;
+        allianceCheckBox.Enabled = individualChannelsEnabled;
         groupCheckBox.Enabled = individualChannelsEnabled;
         whisperCheckBox.Enabled = individualChannelsEnabled;
         sayCheckBox.Enabled = individualChannelsEnabled;
@@ -579,7 +585,7 @@ internal sealed class TranslationSettingsForm : Form
 
         var outputDescription = fullTranslationCheckBox.Checked
             ? "전체번역은 모든 영문 채팅 채널과 sends/says 대화를 번역합니다.\r\n" +
-              "원문은 첫 줄에 두고, 다음 줄에 같은 채널·이름 형식으로 번역문을 표시합니다."
+              "원문 다음 줄에 같은 채널·이름 형식으로 번역문을 표시합니다."
             : "한글이 없는 영문 메시지만 번역하며, 원문 다음 줄에 [번역] : 내용으로 표시합니다.";
 
         return providerDescription + "\r\n" +

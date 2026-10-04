@@ -17,7 +17,8 @@ internal enum TranslationChannel
     Say = 8,
     Lfg = 16,
     FullTranslation = 32,
-    All = Guild | Group | Whisper | Say | Lfg,
+    Alliance = 64,
+    All = Guild | Group | Whisper | Say | Lfg | Alliance,
     PersistedMask = All | FullTranslation
 }
 

@@ -1,4 +1,4 @@
-#include "TranslationBridge.h"
+﻿#include "TranslationBridge.h"
 
 #include <Windows.h>
 
@@ -15,7 +15,6 @@ namespace
 {
     constexpr std::uint32_t MaxRecordCharacters = 4096;
     constexpr DWORD MaxReadBytes = 1024 * 1024;
-    constexpr size_t PendingLayoutReservation = 96;
     constexpr size_t MaxDisplayedTranslationCharacters = 120;
     constexpr size_t MaxPendingTranslations = 256;
     constexpr size_t MaxRememberedTranslations = 2048;
@@ -34,6 +33,7 @@ namespace
     unsigned long long ResponseOffset = 0;
     volatile LONG CachedTranslationDisplayMode = 0;
     volatile LONG LastTranslationModeCheckTick = 0;
+    volatile LONG LayoutRevision = 0;
 
     TranslationDisplayMode GetTranslationDisplayMode()
     {
@@ -74,9 +74,11 @@ namespace
                 ? TranslationDisplayMode::Replace
                 : TranslationDisplayMode::Append;
         }
-        ::InterlockedExchange(
+        const LONG previousMode = ::InterlockedExchange(
             &CachedTranslationDisplayMode,
             static_cast<LONG>(mode));
+        if (previousMode != static_cast<LONG>(mode))
+            ::InterlockedIncrement(&LayoutRevision);
         ::InterlockedExchange(&LastTranslationModeCheckTick, static_cast<LONG>(now));
         return mode;
     }
@@ -191,7 +193,7 @@ namespace
             return {};
 
         std::wstring output = original;
-        output += L'\n';
+        output += L"\n";
         output.append(original, 0, body);
         output += translated;
         return output;
@@ -233,7 +235,9 @@ namespace
         constexpr const wchar_t* Prefixes[] =
         {
             L"[Guild]",
+            L"[Alliance]",
             L"[Group]",
+            L"[Party]",
             L"[Whisper]",
             L"[Say]",
             L"[LFG]",
@@ -423,10 +427,9 @@ namespace
         if (displayMode == TranslationDisplayMode::Replace)
             return false;
 
-        // Append mode keeps the original visible and reserves enough texture
-        // width for the translated text that will be added on a later redraw.
-        text.append(PendingLayoutReservation, L' ');
-        return true;
+        // Rows are rebuilt on the UI thread when a response arrives. Keep the
+        // original unchanged while pending; blank padding distorts wrapping.
+        return false;
     }
 }
 
@@ -450,6 +453,12 @@ void KoreanRenderHook::ResetChatTranslationBridge()
 bool KoreanRenderHook::TryAppendChatTranslation(std::wstring& text)
 {
     return TryApplyChatTranslation(text, GetTranslationDisplayMode());
+}
+
+unsigned long KoreanRenderHook::ChatTranslationLayoutRevision()
+{
+    GetTranslationDisplayMode();
+    return static_cast<unsigned long>(::InterlockedCompareExchange(&LayoutRevision, 0, 0));
 }
 
 void KoreanRenderHook::PollChatTranslationResponses()
@@ -562,16 +571,48 @@ void KoreanRenderHook::PollChatTranslationResponses()
             TranslationExclusions.insert(key);
         }
         ::ReleaseSRWLockExclusive(&TranslationLock);
+        ::InterlockedIncrement(&LayoutRevision);
         cursor += recordBytes;
     }
     ResponseOffset += cursor;
+}
+
+bool KoreanRenderHook::RunChatSourceBoundarySelfTest(
+    bool (*check)(const std::wstring&, const std::wstring&))
+{
+    ResetChatTranslationBridge();
+    const LONG previousMode = CachedTranslationDisplayMode;
+    const LONG previousTick = LastTranslationModeCheckTick;
+    CachedTranslationDisplayMode = static_cast<LONG>(TranslationDisplayMode::Append);
+    LastTranslationModeCheckTick = static_cast<LONG>(::GetTickCount());
+    const std::wstring pending = L"[LFG] Player: Need healer";
+    bool passed = check(pending, pending);
+    ::AcquireSRWLockShared(&TranslationLock);
+    passed = passed && TranslationPending.find(pending) != TranslationPending.end();
+    ::ReleaseSRWLockShared(&TranslationLock);
+    const std::wstring sources[] = { L"[LFG] P: Hi", L"[Alliance] Player: Meet at the north gate" };
+    for (const auto& source : sources)
+    {
+        ::AcquireSRWLockExclusive(&TranslationLock);
+        TranslationCache[source] = L"북문에서 만나기";
+        ::ReleaseSRWLockExclusive(&TranslationLock);
+        passed = check(source, source + L"\n[번역] : 북문에서 만나기") && passed;
+    }
+    CachedTranslationDisplayMode = previousMode;
+    LastTranslationModeCheckTick = previousTick;
+    ResetChatTranslationBridge();
+    return passed;
 }
 
 bool KoreanRenderHook::RunChatTranslationBridgeSelfTest()
 {
     const bool parsingSucceeded =
         IsTranslatableChatLine(L"[Guild] Character : Need healer", false) &&
+        IsTranslatableChatLine(L"[Alliance] 이름: \"Need healer\"", false) &&
+        IsTranslatableChatLine(L"[ALLIANCE] Player: \"Need healer\"", true) &&
+        !IsTranslatableChatLine(L"[Alliance] 이름: \"안녕하세요\"", false) &&
         IsTranslatableChatLine(L"[LFG] Character : RvR group needs tank", false) &&
+        IsTranslatableChatLine(L"[Party] 이름: \"Meet at north gate\"", false) &&
         IsTranslatableChatLine(L"[Group] 이름 : Meet at north gate", false) &&
         IsTranslatableChatLine(L"nodeoccu sends, \"hi\"", false) &&
         IsTranslatableChatLine(L"NodeOccu SENDS, \"meet at north gate\"", false) &&
@@ -597,8 +638,8 @@ bool KoreanRenderHook::RunChatTranslationBridgeSelfTest()
     ResetChatTranslationBridge();
     const std::wstring original = L"[LFG] Character : Meet at north gate";
     std::wstring firstRender = original;
-    if (!TryApplyChatTranslation(firstRender, TranslationDisplayMode::Append) ||
-        firstRender.size() != original.size() + PendingLayoutReservation)
+    if (TryApplyChatTranslation(firstRender, TranslationDisplayMode::Append) ||
+        firstRender != original)
         return false;
     if (!AppendRecord(QueuePath(L"responses"), original, L"북문에서 만나기"))
         return false;

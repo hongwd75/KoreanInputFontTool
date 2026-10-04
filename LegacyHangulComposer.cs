@@ -149,8 +149,10 @@ public sealed class LegacyHangulComposer
     {
         if (initial is null)
         {
+            var committed = CurrentText;
+            medial = null;
             initial = consonant;
-            return Update(oldText);
+            return new CompositionUpdate(true, oldText.Length, committed + CurrentText);
         }
 
         if (medial is null)
@@ -194,8 +196,20 @@ public sealed class LegacyHangulComposer
     {
         if (initial is null)
         {
-            medial = CombineMedial(medial, vowel);
-            return Update(oldText);
+            if (medial is null)
+            {
+                medial = vowel;
+                return Update(oldText);
+            }
+            if (medialCombinations.TryGetValue((medial.Value, vowel), out var combined))
+            {
+                medial = combined;
+                return Update(oldText);
+            }
+
+            var committed = CurrentText;
+            medial = vowel;
+            return new CompositionUpdate(true, oldText.Length, committed + CurrentText);
         }
 
         if (medial is null)
@@ -250,16 +264,6 @@ public sealed class LegacyHangulComposer
 
     private CompositionUpdate Update(string oldText) =>
         new(true, oldText.Length, CurrentText);
-
-    private static char CombineMedial(char? current, char next) =>
-        current is not null && new Dictionary<(char, char), char>
-        {
-            [('ㅗ', 'ㅏ')] = 'ㅘ', [('ㅗ', 'ㅐ')] = 'ㅙ', [('ㅗ', 'ㅣ')] = 'ㅚ',
-            [('ㅜ', 'ㅓ')] = 'ㅝ', [('ㅜ', 'ㅔ')] = 'ㅞ', [('ㅜ', 'ㅣ')] = 'ㅟ',
-            [('ㅡ', 'ㅣ')] = 'ㅢ'
-        }.TryGetValue((current.Value, next), out var combined)
-            ? combined
-            : next;
 
     private static (char? Previous, char? NextInitial) SplitFinal(char value) => value switch
     {

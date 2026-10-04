@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
@@ -20,7 +20,7 @@
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
-    <Version>18.35.0</Version>
+    <Version>18.44.0</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
@@ -51,7 +51,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Assets\DaocLegacyFonts.br" LogicalName="KoreanInputFontTool.Assets.DaocLegacyFonts.br" />
-    <EmbeddedResource Include="Assets\KoreanRenderHook32-v18_35.dll.br" LogicalName="KoreanInputFontTool.Native.KoreanRenderHook32.dll.br" />
+    <EmbeddedResource Include="Assets\KoreanRenderHook32-v18_44.dll.br" LogicalName="KoreanInputFontTool.Native.KoreanRenderHook32.dll.br" />
   </ItemGroup>
 
   <Target Name="RequireReleaseConfiguration" BeforeTargets="PrepareForBuild" Condition="'$(Configuration)' != 'Release'">

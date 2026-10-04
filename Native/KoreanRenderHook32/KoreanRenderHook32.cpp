@@ -1,4 +1,4 @@
-#include "HangulRecomposer.h"
+﻿#include "HangulRecomposer.h"
 #include "MinHook.h"
 #include "TranslationBridge.h"
 
@@ -6,9 +6,13 @@
 #include <TlHelp32.h>
 
 #include <cstdlib>
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <unordered_map>
+#include <deque>
+#include <cstddef>
 
 namespace
 {
@@ -24,9 +28,43 @@ namespace
     GetTextExtentPoint32WProc OriginalGetTextExtentPoint32W = nullptr;
     GetTextExtentPoint32WProc SystemGetTextExtentPoint32W = nullptr;
     void* OriginalLegacyToWide = nullptr;
+    void* OriginalWideToLegacy = nullptr;
+    void* OriginalChatAppend = nullptr;
+    void* OriginalChatDraw = nullptr;
+    void* ChatLengthContinuation = nullptr;
+    void* ChatResetRows = nullptr;
+    void* OriginalChatLength = nullptr;
+    volatile LONG ChatLayoutHooksInstalled = 0;
+    thread_local int ChatLayoutDepth = 0;
+    thread_local bool RebuildingChatRows = false;
+    thread_local std::unordered_map<void*, unsigned long> ChatLayoutRevisions;
+    volatile LONG LoggedChatRebuildCount = 0;
+    volatile LONG LoggedChatSourceCount = 0;
+    struct NativeChatSource
+    {
+        unsigned int allocator = 0;
+        union Storage
+        {
+            char inlineText[16];
+            const char* pointer;
+            Storage() : inlineText{} {}
+        } storage;
+        unsigned int length = 0;
+        unsigned int capacity = 15;
+        const char* Text() const { return capacity >= 16 ? storage.pointer : storage.inlineText; }
+    };
+    static_assert(offsetof(NativeChatSource, length) == 0x14);
+    static_assert(offsetof(NativeChatSource, capacity) == 0x18);
+    struct ChatSourceFrame
+    {
+        std::string encoded;
+        NativeChatSource record;
+    };
+    thread_local std::deque<ChatSourceFrame> ChatSourceFrames;
     volatile LONG CachedModeEnabled = 0;
     volatile LONG LastModeCheckTick = 0;
     volatile LONG LoggedConversionCount = 0;
+    volatile LONG LoggedMultilineCount = 0;
     HANDLE HookReadyEvent = nullptr;
     constexpr wchar_t CompleteFontFace[] = L"DAoC KDAOC Complete Hangul";
     constexpr int FontCacheCapacity = 16;
@@ -290,17 +328,11 @@ namespace
             source,
             sourceLength,
             recomposed);
-        const std::wstring hangulOnly = recomposed;
-        bool translationChanged = KoreanRenderHook::TryAppendChatTranslation(recomposed);
-        if (!hangulChanged && !translationChanged)
+        // The shared chat source boundary has already applied translation.
+        // Glyph and Unicode conversion paths only recompose Hangul.
+        if (!hangulChanged)
         {
             return -1;
-        }
-        if (recomposed.size() >= static_cast<size_t>(destinationCapacity) &&
-            translationChanged)
-        {
-            recomposed = hangulOnly;
-            translationChanged = false;
         }
         if (recomposed.size() >= static_cast<size_t>(destinationCapacity))
             return -1;
@@ -313,6 +345,197 @@ namespace
         destination[destinationCapacity - 1] = L'\0';
         LogConversion(source, sourceLength, recomposed);
         return static_cast<int>(recomposed.size());
+    }
+
+    void __cdecl BeginChatLayout()
+    {
+        ++ChatLayoutDepth;
+    }
+
+    const NativeChatSource* __cdecl BeginChatSource(const NativeChatSource* source)
+    {
+        BeginChatLayout();
+        ChatSourceFrames.emplace_back();
+        if (!ChatLayoutHooksInstalled || !IsPrecomposedModeEnabled() || source == nullptr ||
+            source->length == 0 || source->length > 4096 || source->Text() == nullptr)
+            return source;
+        std::wstring text;
+        KoreanRenderHook::RecomposeLegacyText(source->Text(), static_cast<int>(source->length), text);
+        const bool translated = KoreanRenderHook::TryAppendChatTranslation(text);
+        if (::InterlockedIncrement(&LoggedChatSourceCount) <= 32)
+        {
+            wchar_t message[128] = {};
+            swprintf_s(message, L"chat source chars=%u translated=%u (shared ANSI/Unicode boundary)",
+                source->length, translated ? 1U : 0U);
+            AppendDiagnostic(message);
+        }
+        if (!translated)
+            return source;
+        auto& frame = ChatSourceFrames.back();
+        frame.encoded = KoreanRenderHook::EncodeLegacyChatText(text.data(), static_cast<int>(text.size()));
+        // Both branches use 1024-byte temporary row buffers. Do not expand an
+        // oversized source past the client's known layout buffer limits.
+        if (frame.encoded.size() >= 1024)
+            return source;
+        frame.record.allocator = source->allocator;
+        frame.record.storage.pointer = frame.encoded.c_str();
+        frame.record.length = static_cast<unsigned int>(frame.encoded.size());
+        frame.record.capacity = (std::max)(16U, frame.record.length);
+        return &frame.record;
+    }
+
+    void __cdecl EndChatLayout()
+    {
+        if (ChatSourceFrames.size() == static_cast<size_t>(ChatLayoutDepth))
+            ChatSourceFrames.pop_back();
+        --ChatLayoutDepth;
+    }
+
+    int __cdecl TryEncodeChatRow(const wchar_t* source, int length, char* destination, int capacity)
+    {
+        if (ChatLayoutDepth <= 0 || !IsPrecomposedModeEnabled() || source == nullptr ||
+            destination == nullptr || length < 0 || length > 1024 || capacity <= 0)
+            return -1;
+        const std::string encoded = KoreanRenderHook::EncodeLegacyChatText(source, length);
+        if (encoded.size() >= static_cast<size_t>(capacity))
+            return -1;
+        std::memcpy(destination, encoded.data(), encoded.size());
+        destination[encoded.size()] = '\0';
+        return static_cast<int>(encoded.size());
+    }
+
+    __declspec(naked) void HookWideToLegacy()
+    {
+        __asm
+        {
+            pushfd
+            pushad
+            mov eax, dword ptr[esp + 28]
+            mov edx, dword ptr[esp + 20]
+            mov ecx, dword ptr[esp + 24]
+            mov ebx, dword ptr[esp + 40]
+            push eax
+            push edx
+            push ecx
+            push ebx
+            call TryEncodeChatRow
+            add esp, 16
+            cmp eax, -1
+            je passthrough
+            mov dword ptr[esp + 28], eax
+            popad
+            popfd
+            ret
+        passthrough:
+            popad
+            popfd
+            jmp dword ptr[OriginalWideToLegacy]
+        }
+    }
+
+    __declspec(naked) void HookChatAppend()
+    {
+        __asm
+        {
+            push ebp
+            mov ebp, esp
+            sub esp, 4
+            pushfd
+            pushad
+            push dword ptr[ebp + 8]
+            call BeginChatSource
+            add esp, 4
+            mov dword ptr[esp + 28], eax
+            popad
+            popfd
+            mov dword ptr[ebp - 4], eax
+            push dword ptr[ebp + 20]
+            push dword ptr[ebp + 16]
+            push dword ptr[ebp + 12]
+            push dword ptr[ebp - 4]
+            call dword ptr[OriginalChatAppend]
+            pushfd
+            pushad
+            call EndChatLayout
+            popad
+            popfd
+            mov esp, ebp
+            pop ebp
+            ret 16
+        }
+    }
+
+    int __cdecl ChatConvertedLength(const wchar_t* text, const void* record)
+    {
+        if (IsPrecomposedModeEnabled())
+            return static_cast<int>(wcsnlen_s(text, 1024));
+        return *reinterpret_cast<const int*>(static_cast<const unsigned char*>(record) + 0x14);
+    }
+
+    __declspec(naked) void HookChatLength()
+    {
+        __asm
+        {
+            pushfd
+            pushad
+            push edi
+            push esi
+            call ChatConvertedLength
+            add esp, 8
+            mov dword ptr[esp], eax
+            popad
+            popfd
+            mov eax, dword ptr[ebx + 0x6A4]
+            jmp dword ptr[ChatLengthContinuation]
+        }
+    }
+
+    void __cdecl RefreshChatRows(void* chat)
+    {
+        if (!ChatLayoutHooksInstalled || RebuildingChatRows || chat == nullptr)
+            return;
+        const unsigned long revision = KoreanRenderHook::ChatTranslationLayoutRevision();
+        auto found = ChatLayoutRevisions.find(chat);
+        if (found != ChatLayoutRevisions.end() && found->second == revision)
+            return;
+        if (ChatLayoutRevisions.size() >= 16 && found == ChatLayoutRevisions.end())
+            ChatLayoutRevisions.clear();
+        ChatLayoutRevisions[chat] = revision;
+        // The client's clear/rebuild recalculates scrolling using stale eligible-row
+        // totals. Preserve the newest-row offset across that asynchronous reflow.
+        auto* scrollOffset = reinterpret_cast<int*>(static_cast<unsigned char*>(chat) + 0x7B0);
+        const int previousScrollOffset = *scrollOffset;
+        RebuildingChatRows = true;
+        // Run the client's existing width-change rebuild on its own UI thread.
+        __asm
+        {
+            pushfd
+            pushad
+            mov esi, chat
+            call dword ptr[ChatResetRows]
+            popad
+            popfd
+        }
+        *scrollOffset = previousScrollOffset > 0 ? previousScrollOffset : 0;
+        RebuildingChatRows = false;
+        if (::InterlockedIncrement(&LoggedChatRebuildCount) <= 32)
+            AppendDiagnostic(L"chat layout rebuilt after translation revision");
+    }
+
+    __declspec(naked) void HookChatDraw()
+    {
+        __asm
+        {
+            pushfd
+            pushad
+            mov eax, dword ptr[esp + 40]
+            push eax
+            call RefreshChatRows
+            add esp, 4
+            popad
+            popfd
+            jmp dword ptr[OriginalChatDraw]
+        }
     }
 
     // The client uses a register-based helper for nearly every ANSI -> UTF-16
@@ -482,6 +705,317 @@ namespace
         return enabled;
     }
 
+    bool HasLineBreak(const std::wstring& text)
+    {
+        return text.find_first_of(L"\r\n") != std::wstring::npos;
+    }
+
+    template<typename Callback>
+    bool ForEachTextLine(const std::wstring& text, Callback callback)
+    {
+        size_t start = 0;
+        size_t lineIndex = 0;
+        for (;;)
+        {
+            const size_t end = text.find_first_of(L"\r\n", start);
+            const size_t length = end == std::wstring::npos ? text.size() - start : end - start;
+            if (!callback(text.data() + start, static_cast<int>(length), lineIndex++))
+                return false;
+            if (end == std::wstring::npos)
+                return true;
+            start = end + 1;
+            if (text[end] == L'\r' && start < text.size() && text[start] == L'\n')
+                ++start;
+        }
+    }
+
+    void LogMultilineLayout(const wchar_t* operation, const SIZE& size, size_t lines)
+    {
+        if (::InterlockedIncrement(&LoggedMultilineCount) > 32)
+            return;
+        wchar_t message[128] = {};
+        swprintf_s(message, L"multiline %s lines=%u width=%ld height=%ld",
+            operation, static_cast<unsigned int>(lines), size.cx, size.cy);
+        AppendDiagnostic(message);
+    }
+
+    BOOL MeasureMultilineText(HDC dc, const std::wstring& text, LPSIZE size)
+    {
+        if (!HasLineBreak(text))
+            return SystemGetTextExtentPoint32W(dc, text.data(), static_cast<int>(text.size()), size);
+        if (size == nullptr)
+            return FALSE;
+        TEXTMETRICW metrics = {};
+        if (!::GetTextMetricsW(dc, &metrics))
+            return FALSE;
+        const LONG lineHeight = metrics.tmHeight + metrics.tmExternalLeading;
+        SIZE result = {};
+        size_t lines = 0;
+        if (!ForEachTextLine(text, [&](const wchar_t* line, int length, size_t)
+        {
+            SIZE lineSize = {};
+            if (!SystemGetTextExtentPoint32W(dc, line, length, &lineSize))
+                return false;
+            if (lineSize.cx > result.cx)
+                result.cx = lineSize.cx;
+            ++lines;
+            return true;
+        }))
+            return FALSE;
+        result.cy = metrics.tmHeight + static_cast<LONG>(lines - 1) * lineHeight;
+        *size = result;
+        LogMultilineLayout(L"measure", result, lines);
+        return TRUE;
+    }
+
+    BOOL DrawMultilineText(HDC dc, int x, int y, const std::wstring& text)
+    {
+        if (!HasLineBreak(text))
+            return SystemTextOutW(dc, x, y, text.data(), static_cast<int>(text.size()));
+        TEXTMETRICW metrics = {};
+        if (!::GetTextMetricsW(dc, &metrics))
+            return FALSE;
+        const UINT alignment = ::GetTextAlign(dc);
+        POINT position = {};
+        const bool updatePosition = (alignment & TA_UPDATECP) != 0;
+        if (alignment == GDI_ERROR || (updatePosition && !::GetCurrentPositionEx(dc, &position)))
+            return FALSE;
+        if (updatePosition)
+        {
+            x = position.x;
+            y = position.y;
+            if (::SetTextAlign(dc, alignment & ~TA_UPDATECP) == GDI_ERROR)
+                return FALSE;
+        }
+        const LONG lineHeight = metrics.tmHeight + metrics.tmExternalLeading;
+        size_t lines = 0;
+        const bool drawn = ForEachTextLine(text, [&](const wchar_t* line, int length, size_t index)
+        {
+            ++lines;
+            return SystemTextOutW(dc, x, y + static_cast<int>(index) * lineHeight, line, length) != FALSE;
+        });
+        if (updatePosition)
+        {
+            ::SetTextAlign(dc, alignment);
+            ::MoveToEx(dc, position.x, position.y, nullptr);
+        }
+        const SIZE result = { 0, metrics.tmHeight + static_cast<LONG>(lines - 1) * lineHeight };
+        LogMultilineLayout(L"draw", result, lines);
+        return drawn ? TRUE : FALSE;
+    }
+
+    bool RunMultilineLayoutSelfTest()
+    {
+        SystemGetTextExtentPoint32W = &::GetTextExtentPoint32W;
+        SystemTextOutW = &::TextOutW;
+        HDC dc = ::CreateCompatibleDC(nullptr);
+        if (dc == nullptr)
+            return false;
+        TEXTMETRICW metrics = {};
+        SIZE longest = {};
+        bool passed = ::GetTextMetricsW(dc, &metrics) != FALSE &&
+            ::GetTextExtentPoint32W(dc, L"Longest line", 12, &longest) != FALSE;
+        const std::wstring cases[] =
+        {
+            L"Longest line\r\nx", L"x\nLongest line", L"Longest line\rx",
+        };
+        for (const auto& text : cases)
+        {
+            SIZE measured = {};
+            passed = passed && MeasureMultilineText(dc, text, &measured) &&
+                measured.cx == longest.cx &&
+                measured.cy == metrics.tmHeight * 2 + metrics.tmExternalLeading;
+        }
+        SIZE emptyLines = {};
+        passed = passed && MeasureMultilineText(dc, L"\r\n\r\n", &emptyLines) &&
+            emptyLines.cx == 0 &&
+            emptyLines.cy == metrics.tmHeight * 3 + metrics.tmExternalLeading * 2;
+        HBITMAP bitmap = ::CreateBitmap(256, 128, 1, 1, nullptr);
+        if (bitmap == nullptr)
+            passed = false;
+        else
+        {
+            HGDIOBJ previous = ::SelectObject(dc, bitmap);
+            passed = passed && DrawMultilineText(dc, 0, 0, L"Original\r\nTranslation");
+            ::SelectObject(dc, previous);
+            ::DeleteObject(bitmap);
+        }
+        ::DeleteDC(dc);
+        return passed;
+    }
+
+    int WINAPI TestChatAppendTarget(int first, int second, int third, int fourth)
+    {
+        return ChatLayoutDepth == 1 ? first + second + third + fourth : -1;
+    }
+
+    __declspec(naked) void TestChatLengthContinuation()
+    {
+        __asm { ret }
+    }
+
+    __declspec(naked) void TestChatResetTarget()
+    {
+        __asm
+        {
+            inc dword ptr[esi]
+            mov dword ptr[esi + 0x7B0], 7
+            ret
+        }
+    }
+
+    int WINAPI TestChatDrawTarget(int* counter)
+    {
+        return *counter + 5;
+    }
+
+    bool RunChatHookAdapterSelfTest()
+    {
+        OriginalChatAppend = reinterpret_cast<void*>(&TestChatAppendTarget);
+        int appendResult = 0;
+        __asm
+        {
+            pushad
+            push 4
+            push 3
+            push 2
+            push 1
+            call HookChatAppend
+            mov appendResult, eax
+            popad
+        }
+        OriginalChatAppend = nullptr;
+        if (appendResult != 10 || ChatLayoutDepth != 0)
+            return false;
+
+        const std::wstring sourceText = L"Hello\n북문";
+        const wchar_t* source = sourceText.data();
+        const int sourceCharacters = static_cast<int>(sourceText.size());
+        char buffer[512] = {};
+        int encodedLength = 0;
+        const LONG previousMode = CachedModeEnabled;
+        const LONG previousTick = LastModeCheckTick;
+        CachedModeEnabled = 1;
+        LastModeCheckTick = static_cast<LONG>(::GetTickCount());
+        BeginChatLayout();
+        __asm
+        {
+            pushad
+            mov eax, 512
+            lea edx, buffer
+            mov ecx, sourceCharacters
+            push source
+            call HookWideToLegacy
+            add esp, 4
+            mov encodedLength, eax
+            popad
+        }
+        EndChatLayout();
+        std::wstring decoded;
+        KoreanRenderHook::RecomposeLegacyText(buffer, encodedLength, decoded);
+
+        unsigned char record[0x18] = {};
+        unsigned char chat[0x6A8] = {};
+        record[0x14] = 1; // Original length deliberately differs from UTF-16.
+        ChatLengthContinuation = reinterpret_cast<void*>(&TestChatLengthContinuation);
+        int counted = 0;
+        __asm
+        {
+            pushad
+            lea ebx, chat
+            lea edi, record
+            mov esi, source
+            call HookChatLength
+            mov counted, edi
+            popad
+        }
+        ChatLengthContinuation = nullptr;
+        CachedModeEnabled = previousMode;
+        LastModeCheckTick = previousTick;
+        if (decoded != sourceText || counted != sourceCharacters || ChatLayoutDepth != 0)
+            return false;
+        int drawChat[0x7B4 / sizeof(int)] = {};
+        int& resetCount = drawChat[0];
+        int drawResult = 0;
+        ChatResetRows = reinterpret_cast<void*>(&TestChatResetTarget);
+        OriginalChatDraw = reinterpret_cast<void*>(&TestChatDrawTarget);
+        ::InterlockedExchange(&ChatLayoutHooksInstalled, 1);
+        __asm
+        {
+            pushad
+            lea eax, drawChat
+            push eax
+            call HookChatDraw
+            mov drawResult, eax
+            lea eax, drawChat
+            push eax
+            call HookChatDraw
+            popad
+        }
+        const bool bottomPreserved = drawChat[0x7B0 / sizeof(int)] == 0;
+        ChatLayoutRevisions.clear();
+        drawChat[0x7B0 / sizeof(int)] = 3;
+        RefreshChatRows(drawChat);
+        const bool historyPreserved = drawChat[0x7B0 / sizeof(int)] == 3;
+        ::InterlockedExchange(&ChatLayoutHooksInstalled, 0);
+        ChatResetRows = nullptr;
+        OriginalChatDraw = nullptr;
+        ChatLayoutRevisions.clear();
+        return resetCount == 2 && drawResult == 6 && bottomPreserved && historyPreserved && !RebuildingChatRows;
+    }
+
+    bool CheckChatSourceBoundary(const std::wstring& original, const std::wstring& expected)
+    {
+        const std::string encoded = KoreanRenderHook::EncodeLegacyChatText(original.data(), static_cast<int>(original.size()));
+        NativeChatSource source;
+        source.length = static_cast<unsigned int>(encoded.size());
+        if (encoded.size() < 16)
+            std::memcpy(source.storage.inlineText, encoded.c_str(), encoded.size() + 1);
+        else
+        {
+            source.storage.pointer = encoded.c_str();
+            source.capacity = source.length;
+        }
+        const auto* transformed = BeginChatSource(&source);
+        std::wstring decoded;
+        KoreanRenderHook::RecomposeLegacyText(transformed->Text(), static_cast<int>(transformed->length), decoded);
+        const bool passed = decoded == expected && std::string(source.Text(), source.length) == encoded;
+        EndChatLayout();
+        return passed && ChatLayoutDepth == 0 && ChatSourceFrames.empty();
+    }
+
+    bool RunSharedChatSourceSelfTest()
+    {
+        const LONG previousMode = CachedModeEnabled;
+        const LONG previousTick = LastModeCheckTick;
+        CachedModeEnabled = 1;
+        LastModeCheckTick = static_cast<LONG>(::GetTickCount());
+        ::InterlockedExchange(&ChatLayoutHooksInstalled, 1);
+        const bool passed = KoreanRenderHook::RunChatSourceBoundarySelfTest(&CheckChatSourceBoundary);
+        ::InterlockedExchange(&ChatLayoutHooksInstalled, 0);
+        CachedModeEnabled = previousMode;
+        LastModeCheckTick = previousTick;
+        return passed;
+    }
+
+    bool RunChatRowEncodingSelfTest()
+    {
+        for (unsigned int syllable = 0xAC00; syllable <= 0xD7A3; ++syllable)
+        {
+            const wchar_t value = static_cast<wchar_t>(syllable);
+            const std::string encoded = KoreanRenderHook::EncodeLegacyChatText(&value, 1);
+            std::wstring decoded;
+            if (!KoreanRenderHook::RecomposeLegacyText(encoded.data(), static_cast<int>(encoded.size()), decoded) ||
+                decoded != std::wstring(1, value))
+                return false;
+        }
+        const std::wstring source = L"[Alliance] Player: Hello\n[번역] : 북문에서 만나기";
+        const std::string encoded = KoreanRenderHook::EncodeLegacyChatText(source.data(), static_cast<int>(source.size()));
+        std::wstring decoded;
+        KoreanRenderHook::RecomposeLegacyText(encoded.data(), static_cast<int>(encoded.size()), decoded);
+        return decoded == source;
+    }
+
     BOOL WINAPI HookTextOutA(HDC dc, int x, int y, LPCSTR text, int length)
     {
         if (!IsPrecomposedModeEnabled() || SystemTextOutW == nullptr)
@@ -489,12 +1023,12 @@ namespace
 
         std::wstring recomposed;
         const bool hangulChanged = KoreanRenderHook::RecomposeLegacyText(text, length, recomposed);
-        const bool translationChanged = KoreanRenderHook::TryAppendChatTranslation(recomposed);
-        if (!hangulChanged && !translationChanged)
+        const bool translationChanged = false;
+        if (!hangulChanged && !translationChanged && !HasLineBreak(recomposed))
             return OriginalTextOutA(dc, x, y, text, length);
         LogConversion(text, length, recomposed);
         const ScopedCompleteFont font(dc);
-        return SystemTextOutW(dc, x, y, recomposed.data(), static_cast<int>(recomposed.size()));
+        return DrawMultilineText(dc, x, y, recomposed);
     }
 
     BOOL WINAPI HookTextOutW(HDC dc, int x, int y, LPCWSTR text, int length)
@@ -504,12 +1038,12 @@ namespace
 
         std::wstring recomposed;
         const bool hangulChanged = KoreanRenderHook::RecomposeLegacyWideText(text, length, recomposed);
-        const bool translationChanged = KoreanRenderHook::TryAppendChatTranslation(recomposed);
-        if (!hangulChanged && !translationChanged)
+        const bool translationChanged = false;
+        if (!hangulChanged && !translationChanged && !HasLineBreak(recomposed))
             return OriginalTextOutW(dc, x, y, text, length);
         LogWideConversion(text, length, recomposed);
         const ScopedCompleteFont font(dc);
-        return SystemTextOutW(dc, x, y, recomposed.data(), static_cast<int>(recomposed.size()));
+        return DrawMultilineText(dc, x, y, recomposed);
     }
 
     BOOL WINAPI HookGetTextExtentPoint32A(HDC dc, LPCSTR text, int length, LPSIZE size)
@@ -519,15 +1053,11 @@ namespace
 
         std::wstring recomposed;
         const bool hangulChanged = KoreanRenderHook::RecomposeLegacyText(text, length, recomposed);
-        const bool translationChanged = KoreanRenderHook::TryAppendChatTranslation(recomposed);
-        if (!hangulChanged && !translationChanged)
+        const bool translationChanged = false;
+        if (!hangulChanged && !translationChanged && !HasLineBreak(recomposed))
             return OriginalGetTextExtentPoint32A(dc, text, length, size);
         const ScopedCompleteFont font(dc);
-        return SystemGetTextExtentPoint32W(
-            dc,
-            recomposed.data(),
-            static_cast<int>(recomposed.size()),
-            size);
+        return MeasureMultilineText(dc, recomposed, size);
     }
 
     BOOL WINAPI HookGetTextExtentPoint32W(HDC dc, LPCWSTR text, int length, LPSIZE size)
@@ -537,15 +1067,11 @@ namespace
 
         std::wstring recomposed;
         const bool hangulChanged = KoreanRenderHook::RecomposeLegacyWideText(text, length, recomposed);
-        const bool translationChanged = KoreanRenderHook::TryAppendChatTranslation(recomposed);
-        if (!hangulChanged && !translationChanged)
+        const bool translationChanged = false;
+        if (!hangulChanged && !translationChanged && !HasLineBreak(recomposed))
             return OriginalGetTextExtentPoint32W(dc, text, length, size);
         const ScopedCompleteFont font(dc);
-        return SystemGetTextExtentPoint32W(
-            dc,
-            recomposed.data(),
-            static_cast<int>(recomposed.size()),
-            size);
+        return MeasureMultilineText(dc, recomposed, size);
     }
 
     void** FindImportSlot(HMODULE module, const char* importedDll, const char* functionName)
@@ -611,6 +1137,104 @@ namespace
         return *original != nullptr;
     }
 
+    unsigned char* FindUniqueExactCode(HMODULE module, const unsigned char* pattern, size_t length)
+    {
+        auto* base = reinterpret_cast<unsigned char*>(module);
+        const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+        const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(base + dos->e_lfanew);
+        const auto* section = IMAGE_FIRST_SECTION(nt);
+        unsigned char* match = nullptr;
+        for (WORD index = 0; index < nt->FileHeader.NumberOfSections; ++index, ++section)
+        {
+            if ((section->Characteristics & IMAGE_SCN_MEM_EXECUTE) == 0 ||
+                section->VirtualAddress >= nt->OptionalHeader.SizeOfImage)
+                continue;
+            const size_t size = (std::min)(static_cast<size_t>(section->Misc.VirtualSize),
+                static_cast<size_t>(nt->OptionalHeader.SizeOfImage - section->VirtualAddress));
+            if (size < length)
+                continue;
+            auto* start = base + section->VirtualAddress;
+            for (size_t offset = 0; offset <= size - length; ++offset)
+            {
+                if (std::memcmp(start + offset, pattern, length) != 0)
+                    continue;
+                if (match != nullptr)
+                    return nullptr;
+                match = start + offset;
+            }
+        }
+        return match;
+    }
+
+    bool InstallChatLayoutHooks(HMODULE game, unsigned char* legacyToWide)
+    {
+        constexpr unsigned char countPattern[] =
+        {
+            0x8B, 0x83, 0xA4, 0x06, 0, 0, 0x8B, 0x7F, 0x14,
+            0x83, 0x65, 0xF8, 0, 0x85, 0xC0, 0x59, 0x89, 0x7D, 0xFC,
+        };
+        auto* count = FindUniqueExactCode(game, countPattern, sizeof(countPattern));
+        const auto base = reinterpret_cast<uintptr_t>(game);
+        if (count == nullptr || reinterpret_cast<uintptr_t>(count) < base + 0x3EF)
+            return false;
+        // Relative relationships are accepted only with all independent code
+        // signatures and the conversion CALL target validated. No fixed RVA.
+        auto* append = count - 0x199;
+        auto* reset = count - 0x1AE;
+        auto* draw = count - 0x3EF;
+        auto* inverse = legacyToWide + 0x42;
+        constexpr unsigned char appendPrefix[] = { 0x55,0x8B,0xEC,0xB8,0x08,0x14,0,0 };
+        constexpr unsigned char drawPrefix[] =
+        {
+            0x55,0x8B,0xEC,0x83,0xEC,0x48,0x83,0x65,0xF8,0,0xD9,0xEE,
+            0x83,0x65,0xEC,0,0xD9,0x5D,0xB8,
+        };
+        constexpr unsigned char resetMiddle[] = { 0x83,0x8E,0x90,0x8E,0x01,0,0xFF,0x56,0xE8 };
+        constexpr unsigned char inversePrefix[] = { 0x53,0x56,0x33,0xDB,0x38,0x1D };
+        int conversionDisplacement = 0;
+        std::memcpy(&conversionDisplacement, count - 4, sizeof(conversionDisplacement));
+        if (std::memcmp(append, appendPrefix, sizeof(appendPrefix)) != 0 ||
+            std::memcmp(draw, drawPrefix, sizeof(drawPrefix)) != 0 ||
+            reset[0] != 0x8B || reset[1] != 0xCE || reset[2] != 0xE8 ||
+            std::memcmp(reset + 7, resetMiddle, sizeof(resetMiddle)) != 0 ||
+            std::memcmp(inverse, inversePrefix, sizeof(inversePrefix)) != 0 ||
+            count[-5] != 0xE8 || count + conversionDisplacement != legacyToWide)
+            return false;
+        void* targets[] = { append, count, draw, inverse };
+        void* detours[] =
+        {
+            reinterpret_cast<void*>(&HookChatAppend), reinterpret_cast<void*>(&HookChatLength),
+            reinterpret_cast<void*>(&HookChatDraw), reinterpret_cast<void*>(&HookWideToLegacy),
+        };
+        void** originals[] = { &OriginalChatAppend, &OriginalChatLength, &OriginalChatDraw, &OriginalWideToLegacy };
+        ChatLengthContinuation = count + 9;
+        ChatResetRows = reset;
+        for (int index = 0; index < 4; ++index)
+        {
+            if (::MH_CreateHook(targets[index], detours[index], originals[index]) != MH_OK)
+            {
+                for (int created = 0; created < index; ++created)
+                    ::MH_RemoveHook(targets[created]);
+                return false;
+            }
+        }
+        // Queue all four hooks and suspend threads only once when applying.
+        for (void* target : targets)
+            ::MH_QueueEnableHook(target);
+        if (::MH_ApplyQueued() != MH_OK)
+        {
+            for (void* target : targets)
+            {
+                ::MH_DisableHook(target);
+                ::MH_RemoveHook(target);
+            }
+            return false;
+        }
+        ::InterlockedExchange(&ChatLayoutHooksInstalled, 1);
+        AppendDiagnostic(L"install chat layout hooks: native LF/wrap/count/rebuild + legacy row encoding");
+        return true;
+    }
+
     bool InstallHooks()
     {
         static_assert(sizeof(void*) == 4, "KoreanRenderHook32 must be built for Win32");
@@ -652,6 +1276,9 @@ namespace
             AppendDiagnostic(L"install failed: client text conversion hook");
             return false;
         }
+
+        if (!InstallChatLayoutHooks(game, legacyToWide))
+            AppendDiagnostic(L"chat translation disabled: native layout signatures not supported");
 
         SystemTextOutW = reinterpret_cast<TextOutWProc>(::GetProcAddress(gdi, "TextOutW"));
         SystemGetTextExtentPoint32W = reinterpret_cast<GetTextExtentPoint32WProc>(
@@ -698,8 +1325,8 @@ namespace
             reinterpret_cast<void**>(&OriginalTextOutW));
         AppendDiagnostic(installed
             ? (fontRegistered
-                ? L"install ok v18.18: client text conversion + GDI hooks + translation bridge, complete font registered"
-                : L"install ok v18.18: client text conversion + GDI hooks + translation bridge, complete font registration failed")
+                ? L"install ok v18.44: client text conversion + native chat layout + GDI hooks, complete font registered"
+                : L"install ok v18.44: client text conversion + native chat layout + GDI hooks, complete font registration failed")
             : L"install failed: TextOutW patch");
         return installed;
     }
@@ -709,7 +1336,7 @@ namespace
         wchar_t eventName[96] = {};
         swprintf_s(
             eventName,
-            L"Local\\KoreanInputFontTool.RenderHook.v18_35.%lu",
+            L"Local\\KoreanInputFontTool.RenderHook.v18_44.%lu",
             ::GetCurrentProcessId());
         HookReadyEvent = ::CreateEventW(nullptr, TRUE, FALSE, eventName);
         KoreanRenderHook::ResetChatTranslationBridge();
@@ -864,6 +1491,10 @@ extern "C" void CALLBACK Inject(HWND, HINSTANCE, LPSTR commandLine, int)
 extern "C" void CALLBACK SelfTest(HWND, HINSTANCE, LPSTR, int)
 {
     ::ExitProcess(RunClientSignatureLocatorSelfTest() &&
+        RunMultilineLayoutSelfTest() &&
+        RunChatRowEncodingSelfTest() &&
+        RunChatHookAdapterSelfTest() &&
+        RunSharedChatSourceSelfTest() &&
         KoreanRenderHook::RunRecomposerSelfTest() &&
         KoreanRenderHook::RunChatTranslationBridgeSelfTest()
         ? ERROR_SUCCESS

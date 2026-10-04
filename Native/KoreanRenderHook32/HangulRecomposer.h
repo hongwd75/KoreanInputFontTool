@@ -6,5 +6,6 @@ namespace KoreanRenderHook
 {
     bool RecomposeLegacyText(const char* text, int length, std::wstring& output);
     bool RecomposeLegacyWideText(const wchar_t* text, int length, std::wstring& output);
+    std::string EncodeLegacyChatText(const wchar_t* text, int length);
     bool RunRecomposerSelfTest();
 }
