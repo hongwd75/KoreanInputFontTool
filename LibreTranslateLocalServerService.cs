@@ -4,6 +4,14 @@ using System.Net;
 
 namespace KoreanInputFontTool;
 
+internal sealed class DockerDesktopNotInstalledException : InvalidOperationException
+{
+    public DockerDesktopNotInstalledException()
+        : base("Docker Desktop이 설치되어 있지 않습니다.")
+    {
+    }
+}
+
 internal static class LibreTranslateLocalServerService
 {
     private const string ContainerName = "libretranslate";
@@ -15,6 +23,9 @@ internal static class LibreTranslateLocalServerService
 
     public static bool IsSupportedLocalEndpoint(string endpoint) =>
         TryGetLocalEndpoint(endpoint, out _);
+
+    public static bool IsDockerDesktopInstalled() =>
+        FindDockerCli() is not null || FindDockerDesktop() is not null;
 
     public static async Task<bool> IsAvailableAsync(
         string endpoint,
@@ -129,6 +140,52 @@ internal static class LibreTranslateLocalServerService
             "잠시 후 다시 확인하거나 설치 방법 상세의 docker logs 명령으로 상태를 확인하세요.");
     }
 
+    public static async Task InstallDockerDesktopAsync(
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        var winget = FindWinget();
+        if (winget is null)
+        {
+            throw new InvalidOperationException(
+                "Windows 패키지 관리자(winget)를 찾을 수 없습니다. " +
+                "설치 방법 상세에서 Docker Desktop을 직접 설치하세요.");
+        }
+
+        progress?.Report("Docker Desktop 설치 파일을 다운로드하고 설치하고 있습니다.");
+        var install = await RunCommandAsync(
+            winget,
+            [
+                "install",
+                "--id", "Docker.DockerDesktop",
+                "--exact",
+                "--source", "winget",
+                "--accept-source-agreements",
+                "--accept-package-agreements",
+                "--silent",
+                "--disable-interactivity"
+            ],
+            TimeSpan.FromMinutes(45),
+            cancellationToken).ConfigureAwait(false);
+        if (install.ExitCode != 0 && !IsDockerDesktopInstalled())
+            EnsureSuccess(install, "Docker Desktop을 자동 설치하지 못했습니다.");
+
+        if (!IsDockerDesktopInstalled())
+        {
+            throw new InvalidOperationException(
+                "Docker Desktop 설치는 완료되었지만 실행 파일을 찾지 못했습니다. " +
+                "Windows를 다시 시작한 뒤 재시도하거나 설치 방법 상세를 확인하세요.");
+        }
+
+        progress?.Report("Docker Desktop 설치 완료. 프로그램을 시작하고 있습니다.");
+        if (!TryStartDockerDesktop())
+        {
+            throw new InvalidOperationException(
+                "Docker Desktop은 설치되었지만 시작하지 못했습니다. " +
+                "시작 메뉴에서 Docker Desktop을 한 번 실행하세요.");
+        }
+    }
+
     private static bool TryGetLocalEndpoint(string endpoint, out Uri endpointUri)
     {
         endpointUri = null!;
@@ -151,6 +208,9 @@ internal static class LibreTranslateLocalServerService
         IProgress<string>? progress,
         CancellationToken cancellationToken)
     {
+        if (!IsDockerDesktopInstalled())
+            throw new DockerDesktopNotInstalledException();
+
         var version = await RunDockerAsync(
             ["version", "--format", "{{.Server.Version}}"],
             TimeSpan.FromSeconds(15),
@@ -161,7 +221,7 @@ internal static class LibreTranslateLocalServerService
         if (!TryStartDockerDesktop())
         {
             throw new InvalidOperationException(
-                "Docker Desktop을 찾거나 실행할 수 없습니다. 설치 방법 상세에서 Docker Desktop을 설치한 뒤 다시 시도하세요.\r\n\r\n" +
+                "Docker Desktop을 실행할 수 없습니다. 시작 메뉴에서 Docker Desktop을 실행한 뒤 다시 시도하세요.\r\n\r\n" +
                 Summarize(version.Error));
         }
 
@@ -179,24 +239,14 @@ internal static class LibreTranslateLocalServerService
         }
 
         throw new TimeoutException(
-            "Docker Desktop이 제한 시간 안에 준비되지 않았습니다. Docker Desktop 상태를 확인한 뒤 다시 시도하세요.");
+            "Docker Desktop이 제한 시간 안에 준비되지 않았습니다. " +
+            "처음 실행했다면 Docker 사용 약관 동의와 WSL 설치를 완료하세요. " +
+            "Windows 재시작이 요구된 경우 재시작 후 다시 시도하세요.");
     }
 
     private static bool TryStartDockerDesktop()
     {
-        var candidates = new[]
-        {
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-                "Docker", "Docker", "Docker Desktop.exe"),
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Programs", "Docker", "Docker", "Docker Desktop.exe"),
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Programs", "DockerDesktop", "Docker Desktop.exe")
-        };
-        var path = candidates.FirstOrDefault(File.Exists);
+        var path = FindDockerDesktop();
         if (path is null)
             return false;
 
@@ -211,14 +261,42 @@ internal static class LibreTranslateLocalServerService
         }
     }
 
+    private static string? FindDockerDesktop()
+    {
+        var candidates = new[]
+        {
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "Docker", "Docker", "Docker Desktop.exe"),
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Programs", "Docker", "Docker", "Docker Desktop.exe"),
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Programs", "DockerDesktop", "Docker Desktop.exe")
+        };
+        return candidates.FirstOrDefault(File.Exists);
+    }
+
     private static async Task<CommandResult> RunDockerAsync(
+        IReadOnlyList<string> arguments,
+        TimeSpan timeout,
+        CancellationToken cancellationToken) =>
+        await RunCommandAsync(
+            FindDockerCli() ?? "docker.exe",
+            arguments,
+            timeout,
+            cancellationToken).ConfigureAwait(false);
+
+    private static async Task<CommandResult> RunCommandAsync(
+        string fileName,
         IReadOnlyList<string> arguments,
         TimeSpan timeout,
         CancellationToken cancellationToken)
     {
         var startInfo = new ProcessStartInfo
         {
-            FileName = FindDockerCli() ?? "docker.exe",
+            FileName = fileName,
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardOutput = true,
@@ -284,7 +362,43 @@ internal static class LibreTranslateLocalServerService
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "Programs", "DockerDesktop", "resources", "bin", "docker.exe")
         };
-        return candidates.FirstOrDefault(File.Exists);
+        return candidates.FirstOrDefault(File.Exists) ?? FindOnPath("docker.exe");
+    }
+
+    private static string? FindWinget()
+    {
+        var localApplicationData = Environment.GetFolderPath(
+            Environment.SpecialFolder.LocalApplicationData);
+        var candidate = Path.Combine(
+            localApplicationData,
+            "Microsoft", "WindowsApps", "winget.exe");
+        return File.Exists(candidate) ? candidate : FindOnPath("winget.exe");
+    }
+
+    private static string? FindOnPath(string fileName)
+    {
+        var pathValue = Environment.GetEnvironmentVariable("PATH");
+        if (string.IsNullOrWhiteSpace(pathValue))
+            return null;
+
+        foreach (var directory in pathValue.Split(Path.PathSeparator))
+        {
+            var trimmed = directory.Trim().Trim('"');
+            if (trimmed.Length == 0)
+                continue;
+            try
+            {
+                var candidate = Path.Combine(trimmed, fileName);
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+            catch (Exception) when (
+                directory.IndexOfAny(Path.GetInvalidPathChars()) >= 0)
+            {
+            }
+        }
+
+        return null;
     }
 
     private static void EnsureSuccess(CommandResult result, string message)

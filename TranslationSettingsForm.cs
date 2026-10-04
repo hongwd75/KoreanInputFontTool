@@ -367,10 +367,41 @@ internal sealed class TranslationSettingsForm : Form
         try
         {
             var progress = new Progress<string>(message => installSummaryLabel.Text = message);
-            await LibreTranslateLocalServerService.StartAsync(
-                endpointTextBox.Text.Trim(),
-                progress,
-                cancellation.Token);
+            try
+            {
+                await LibreTranslateLocalServerService.StartAsync(
+                    endpointTextBox.Text.Trim(),
+                    progress,
+                    cancellation.Token);
+            }
+            catch (DockerDesktopNotInstalledException)
+            {
+                var install = MessageBox.Show(
+                    this,
+                    "로컬 번역 서버를 실행하려면 Docker Desktop이 필요합니다.\r\n\r\n" +
+                    "Windows 패키지 관리자(winget)로 지금 자동 설치하시겠습니까?\r\n\r\n" +
+                    "최초 실행 시 Docker 사용 약관 동의와 WSL 설치 또는 Windows 재시작이 필요할 수 있습니다.",
+                    "Docker Desktop 설치 필요",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question,
+                    MessageBoxDefaultButton.Button1);
+                if (install != DialogResult.Yes)
+                {
+                    installSummaryLabel.Text =
+                        "Docker Desktop을 설치한 후 로컬 번역 서버를 시작할 수 있습니다.";
+                    localServerButton.Enabled = true;
+                    localServerButton.Text = "로컬 번역 서버 켜기";
+                    return;
+                }
+
+                await LibreTranslateLocalServerService.InstallDockerDesktopAsync(
+                    progress,
+                    cancellation.Token);
+                await LibreTranslateLocalServerService.StartAsync(
+                    endpointTextBox.Text.Trim(),
+                    progress,
+                    cancellation.Token);
+            }
             installSummaryLabel.Text = "로컬 LibreTranslate 서버가 실행 중입니다.";
             localServerButton.Text = "로컬 서버 실행 중";
         }
