@@ -1,0 +1,54 @@
+using System.Text.RegularExpressions;
+
+namespace KoreanInputFontTool;
+
+internal readonly record struct ParsedChatMessage(
+    TranslationChannel Channel,
+    string OriginalLine,
+    string Message);
+
+internal static partial class ChatMessageParser
+{
+    [GeneratedRegex(
+        @"^\s*(?:\[(?<channel>Guild|Group|Whisper|Say|LFG)\]\s*[^:]+?\s*:\s*|(?<sender>[^,\r\n]+?)\s+sends,\s*)(?<message>.+?)\s*$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ChatLinePattern();
+
+    [GeneratedRegex(@"[A-Za-z]", RegexOptions.CultureInvariant)]
+    private static partial Regex EnglishPattern();
+
+    [GeneratedRegex(@"[\u1100-\u11FF\u3130-\u318F\uAC00-\uD7A3]", RegexOptions.CultureInvariant)]
+    private static partial Regex HangulPattern();
+
+    public static bool TryParse(string line, out ParsedChatMessage message)
+    {
+        message = default;
+        if (string.IsNullOrWhiteSpace(line))
+            return false;
+
+        var match = ChatLinePattern().Match(line);
+        if (!match.Success)
+            return false;
+
+        var body = match.Groups["message"].Value.Trim();
+        if (!EnglishPattern().IsMatch(body) || HangulPattern().IsMatch(body))
+            return false;
+
+        var channel = match.Groups["sender"].Success
+            ? TranslationChannel.Whisper
+            : match.Groups["channel"].Value.ToUpperInvariant() switch
+        {
+            "GUILD" => TranslationChannel.Guild,
+            "GROUP" => TranslationChannel.Group,
+            "WHISPER" => TranslationChannel.Whisper,
+            "SAY" => TranslationChannel.Say,
+            "LFG" => TranslationChannel.Lfg,
+            _ => TranslationChannel.None
+        };
+        if (channel == TranslationChannel.None)
+            return false;
+
+        message = new ParsedChatMessage(channel, line, body);
+        return true;
+    }
+}

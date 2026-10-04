@@ -8,8 +8,10 @@ namespace KoreanInputFontTool;
 
 internal sealed class LegacyRenderHookService
 {
+    // Keep this value stable across application releases while the native hook ABI is unchanged.
+    internal const string HookCompatibilityVersion = "18_16";
     private const string ResourceName = "KoreanInputFontTool.Native.KoreanRenderHook32.dll.br";
-    private const string HookFileName = "KoreanRenderHook32-v18_9.dll";
+    private const string HookFileName = "KoreanRenderHook32-v18_16.dll";
     private const string GameWindowTitlePrefix = "Dark Age of Camelot";
     private static readonly string[] GameProcessNames =
     [
@@ -24,6 +26,10 @@ internal sealed class LegacyRenderHookService
     ];
     private readonly HashSet<int> injectedProcessIds = [];
     private string? extractedHookPath;
+    private string? lastFailureSignature;
+    private string? lastFailureLogPath;
+
+    public IReadOnlyCollection<int> ActiveProcessIds => injectedProcessIds.ToArray();
 
     public RenderHookResult EnsureInjected(string daocRoot)
     {
@@ -31,6 +37,7 @@ internal sealed class LegacyRenderHookService
         if (gameProcesses.Length == 0)
         {
             injectedProcessIds.Clear();
+            lastFailureSignature = null;
             return new(false, "완성형 출력 대기 중 — DAoC 실행 후 자동 적용");
         }
         var activeProcessIds = gameProcesses.Select(process => process.Id).ToHashSet();
@@ -82,9 +89,40 @@ internal sealed class LegacyRenderHookService
         }
 
         injectedProcessIds.RemoveWhere(pid => !activeProcessIds.Contains(pid));
+        lastFailureSignature = null;
         return newlyInjected > 0
             ? new(true, $"완성형 출력 훅 적용 완료 — DAoC {newlyInjected}개")
             : new(false, "완성형 출력 훅 실행 중");
+    }
+
+    public string? RecordFailure(string daocRoot, Exception exception)
+    {
+        var processIds = new HashSet<int>(injectedProcessIds);
+        try
+        {
+            foreach (var process in FindGameProcesses(daocRoot))
+            {
+                using (process)
+                    processIds.Add(process.Id);
+            }
+        }
+        catch
+        {
+            // The original exception remains the primary diagnostic.
+        }
+
+        var signature = $"{exception.GetType().FullName}|{exception.Message}|{string.Join(',', processIds.Order())}";
+        if (string.Equals(lastFailureSignature, signature, StringComparison.Ordinal))
+            return lastFailureLogPath;
+
+        lastFailureSignature = signature;
+        lastFailureLogPath = HookFailureDiagnosticWriter.TryAppend(
+            exception,
+            daocRoot,
+            HookCompatibilityVersion,
+            extractedHookPath,
+            processIds.ToArray());
+        return lastFailureLogPath;
     }
 
     private static IReadOnlyList<Process> FindGameProcesses(string daocRoot)
@@ -167,7 +205,7 @@ internal sealed class LegacyRenderHookService
     }
 
     private static string ReadyEventName(int processId) =>
-        $@"Local\KoreanInputFontTool.RenderHook.v18_9.{processId}";
+        $@"Local\KoreanInputFontTool.RenderHook.v18_16.{processId}";
 
     private string ExtractHook()
     {
@@ -181,11 +219,11 @@ internal sealed class LegacyRenderHookService
         decompressor.CopyTo(memory);
         var bytes = memory.ToArray();
 
-        var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "current";
         var directory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "KoreanInputFontTool",
-            version);
+            "NativeHook",
+            HookCompatibilityVersion);
         Directory.CreateDirectory(directory);
         var path = Path.Combine(directory, HookFileName);
         if (!File.Exists(path) || !File.ReadAllBytes(path).AsSpan().SequenceEqual(bytes))

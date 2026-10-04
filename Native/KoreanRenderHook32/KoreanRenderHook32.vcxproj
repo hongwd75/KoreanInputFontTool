@@ -30,7 +30,7 @@
   <PropertyGroup>
     <OutDir>$(ProjectDir)..\..\Assets\</OutDir>
     <IntDir>$(ProjectDir)obj\$(Configuration)\</IntDir>
-    <TargetName>KoreanRenderHook32-v18_9</TargetName>
+    <TargetName>KoreanRenderHook32-v18_16</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
@@ -59,6 +59,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="HangulRecomposer.h" />
+    <ClInclude Include="TranslationBridge.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="$(ProjectDir)..\..\third_party\minhook\src\buffer.c" />
@@ -67,6 +68,7 @@
     <ClCompile Include="$(ProjectDir)..\..\third_party\minhook\src\hde\hde32.c" />
     <ClCompile Include="HangulRecomposer.cpp" />
     <ClCompile Include="KoreanRenderHook32.cpp" />
+    <ClCompile Include="TranslationBridge.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="KoreanRenderHook32.def" />

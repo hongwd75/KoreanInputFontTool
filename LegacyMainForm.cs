@@ -7,30 +7,34 @@ public sealed class LegacyMainForm : Form
     private readonly ComboBox legacyGlyphModeComboBox = new();
     private readonly Label statusLabel = new();
     private readonly Button legacyHookButton = new();
+    private readonly Button translationSettingsButton = new();
     private readonly LegacyKeyboardHook legacyHook = new();
     private readonly LegacyRenderHookService renderHook = new();
+    private readonly ChatTranslationService chatTranslation = new();
     private readonly System.Windows.Forms.Timer renderHookTimer = new() { Interval = 2_000 };
 
     public LegacyMainForm()
     {
-        Text = "KoreanInputFontTool v18.9 x64 - 한글 입력";
+        Text = "KoreanInputFontTool v18.16 x64 - 한글 입력";
         var executableIcon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         if (executableIcon is not null)
             Icon = executableIcon;
         StartPosition = FormStartPosition.CenterScreen;
-        MinimumSize = new Size(600, 370);
-        Size = new Size(600, 370);
+        MinimumSize = new Size(600, 405);
+        Size = new Size(600, 405);
 
         FormClosed += (_, _) =>
         {
             renderHookTimer.Stop();
             renderHookTimer.Dispose();
+            chatTranslation.Dispose();
             legacyHook.Dispose();
         };
         FormClosing += (_, _) => SaveDaocRootPath(showWarning: false);
         Shown += (_, _) => OnFormShown();
         legacyHook.HangulModeChanged += OnHangulModeChanged;
         legacyHook.InputDiagnosticChanged += OnInputDiagnosticChanged;
+        chatTranslation.StatusChanged += OnTranslationStatusChanged;
         renderHookTimer.Tick += (_, _) => EnsurePrecomposedRenderHook();
 
         BuildLayout();
@@ -46,12 +50,36 @@ public sealed class LegacyMainForm : Form
             Dock = DockStyle.Fill,
             Padding = new Padding(12),
             ColumnCount = 1,
-            RowCount = 3
+            RowCount = 4
         };
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
         Controls.Add(root);
+
+        var titlePanel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            Margin = new Padding(0, 0, 0, 4)
+        };
+        titlePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        titlePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 94));
+        titlePanel.Controls.Add(new Label
+        {
+            Text = "한글 입력 및 폰트 도구",
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            Font = new Font(Font, FontStyle.Bold),
+            TextAlign = ContentAlignment.MiddleLeft
+        }, 0, 0);
+        translationSettingsButton.Text = "⚙ 설정";
+        translationSettingsButton.Dock = DockStyle.Fill;
+        translationSettingsButton.Click += OpenSettings;
+        titlePanel.Controls.Add(translationSettingsButton, 1, 0);
+        root.Controls.Add(titlePanel, 0, 0);
 
         var settings = new TableLayoutPanel
         {
@@ -66,7 +94,7 @@ public sealed class LegacyMainForm : Form
         settings.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
         settings.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
         settings.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
-        root.Controls.Add(settings, 0, 0);
+        root.Controls.Add(settings, 0, 1);
 
         daocRootTextBox.Text = RegistrySettings.LoadDaocRootPath();
         daocRootTextBox.Dock = DockStyle.Fill;
@@ -110,7 +138,7 @@ public sealed class LegacyMainForm : Form
             Dock = DockStyle.Fill,
             Margin = new Padding(3, 12, 3, 6)
         };
-        root.Controls.Add(actions, 0, 1);
+        root.Controls.Add(actions, 0, 2);
         var actionPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -142,7 +170,32 @@ public sealed class LegacyMainForm : Form
         statusLabel.Dock = DockStyle.Fill;
         statusLabel.TextAlign = ContentAlignment.MiddleLeft;
         statusLabel.Text = "앱이 열리면 한글 입력을 자동으로 시작합니다.";
-        root.Controls.Add(statusLabel, 0, 2);
+        root.Controls.Add(statusLabel, 0, 3);
+    }
+
+    private void OpenSettings(object? sender, EventArgs e)
+    {
+        using var dialog = new TranslationSettingsForm(RegistrySettings.LoadTranslationOptions());
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+            return;
+
+        try
+        {
+            RegistrySettings.SaveTranslationOptions(dialog.Options);
+            chatTranslation.Update(dialog.Options, renderHook.ActiveProcessIds);
+            statusLabel.Text = dialog.Options.Enabled
+                ? "게임 채팅 자동 번역 설정을 저장했습니다."
+                : "채팅 자동 번역을 사용하지 않도록 저장했습니다.";
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                this,
+                ex.Message,
+                "번역 설정 저장 실패",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+        }
     }
 
     private void ApplyFont(object? sender, EventArgs e)
@@ -190,6 +243,7 @@ public sealed class LegacyMainForm : Form
         StartLegacyHook();
         ApplySelectedFont(automatic: true);
         UpdateRenderHookTimer();
+        UpdateTranslationAvailability();
         EnsurePrecomposedRenderHook();
     }
 
@@ -269,6 +323,7 @@ public sealed class LegacyMainForm : Form
     private void ApplySelectedGlyphMode()
     {
         legacyHook.GlyphMode = SelectedGlyphMode;
+        UpdateTranslationAvailability();
     }
 
     private string SelectedLayoutName => keyboardLayoutComboBox.SelectedIndex == 1
@@ -296,6 +351,14 @@ public sealed class LegacyMainForm : Form
     private void UpdateRenderHookTimer()
     {
         renderHookTimer.Enabled = SelectedGlyphMode == LegacyGlyphMode.PrecomposedHangul;
+        if (!renderHookTimer.Enabled)
+            chatTranslation.Stop();
+    }
+
+    private void UpdateTranslationAvailability()
+    {
+        translationSettingsButton.Enabled =
+            SelectedGlyphMode == LegacyGlyphMode.PrecomposedHangul;
     }
 
     private void EnsurePrecomposedRenderHook()
@@ -306,13 +369,26 @@ public sealed class LegacyMainForm : Form
         try
         {
             var result = renderHook.EnsureInjected(daocRootTextBox.Text.Trim());
+            chatTranslation.Update(
+                RegistrySettings.LoadTranslationOptions(),
+                renderHook.ActiveProcessIds);
             if (result.Changed || statusLabel.Text.Contains("완성형 출력", StringComparison.Ordinal))
                 statusLabel.Text = result.Message;
         }
         catch (Exception ex)
         {
-            statusLabel.Text = $"완성형 출력 훅 오류: {ex.Message}";
+            chatTranslation.Stop();
+            _ = renderHook.RecordFailure(daocRootTextBox.Text.Trim(), ex);
+            statusLabel.Text = "완성형 출력 불가! 게임을 재시작하세요";
         }
+    }
+
+    private void OnTranslationStatusChanged(string message)
+    {
+        if (!IsHandleCreated || IsDisposed)
+            return;
+
+        BeginInvoke((Action)(() => statusLabel.Text = message));
     }
 
     private void OnHangulModeChanged(bool hangul)

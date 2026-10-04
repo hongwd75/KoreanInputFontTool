@@ -11,6 +11,9 @@ DAoC 채팅용 한글 조합 입력과 전용 채팅 폰트를 제공하는 독�
 - `KDAOC 모드`: 기존 초중종 조합 코드와 KDAOC 원본 폰트 사용
 - `확장된 한글`: D2CodingLigature Bold 구성요소를 사용하며, 종성 없는 초성 19개는 가독성이 좋은 KDAOC 세로 확대 글리프로 처리
 - `완성형 출력`: 입력·서버 전송은 KDAOC 조합형을 유지하고, 게임 내부의 문자열 변환 단계에서 완성형 Unicode 한글로 재조합
+- `완성형 출력`에서는 길드·그룹·귓속말·일반 대화·LFG의 영문 메시지를 선택한 번역 서비스로 번역해 원문 뒤에 `[번역] : 내용`으로 표시
+- 수신 귓속말의 `캐릭터 sends, "내용"` 형식도 귓속말 채널로 인식
+- 완성형 훅 오류 분석 로그: 실행 파일과 같은 폴더의 `hook-errors.log`
 - 선택한 모드의 채팅 폰트를 Atlantis/custom UI에 적용
 - DAoC 폴더, 입력 모드(두벌식/세벌식), `한글출력` 설정을 레지스트리에 저장하고 다음 실행 시 복원
 - 앱 시작 시 저장된 `한글출력` 설정의 내장 폰트를 다시 적용하여 새 버전의 폰트가 즉시 반영됨
@@ -30,10 +33,9 @@ Unicode 입력 모드는 지원하지 않습니다.
 KoreanInputFontTool\
   Assets\            KDAOC/확장 한글 폰트와 압축 배포 번들
   Native\            게임 내부 GDI 문자열 변환용 Win32 렌더 훅
-  third_party\       MinHook 소스와 D2CodingLigature Bold 원본
+  archive\           이전 소스·폰트 도구와 V11~V15 빌드 보관
   tools\              확장 폰트 및 압축 번들 생성기
   dist\               Release 배포 스크립트 실행 시 생성
-  KoreanInputFontTool.sln
   KoreanInputFontTool.csproj
 ```
 
@@ -52,5 +54,3 @@ KoreanInputFontTool\
 ```powershell
 dotnet run --project .\KoreanInputFontTool.csproj -c Release -p:Platform=x64
 ```
-
-독립 저장소에 포함된 MinHook과 D2Coding의 라이선스는 `THIRD_PARTY_NOTICES.md`와 각 `third_party` 하위 폴더에서 확인할 수 있습니다.

@@ -1,5 +1,6 @@
 #include "HangulRecomposer.h"
 #include "MinHook.h"
+#include "TranslationBridge.h"
 
 #include <Windows.h>
 #include <TlHelp32.h>
@@ -37,14 +38,128 @@ namespace
     FontCacheEntry FontCache[FontCacheCapacity] = {};
     int FontCacheCount = 0;
     SRWLOCK FontCacheLock = SRWLOCK_INIT;
-    constexpr uintptr_t LegacyToWideRva = 0x0004E5CE;
-    constexpr unsigned char LegacyToWideSignature[] =
+    constexpr unsigned char LegacyToWidePattern[] =
     {
-        0x80, 0x3D, 0x78, 0x20, 0xD9, 0x00, 0x00,
+        0x80, 0x3D, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x57, 0x8B, 0xF8, 0x57,
     };
 
     bool IsPrecomposedModeEnabled();
+
+    bool MatchesLegacyToWidePattern(const unsigned char* candidate)
+    {
+        for (size_t index = 0; index < sizeof(LegacyToWidePattern); ++index)
+        {
+            // The absolute address used by CMP changes between client builds.
+            if (index >= 2 && index <= 5)
+                continue;
+            if (candidate[index] != LegacyToWidePattern[index])
+                return false;
+        }
+        return true;
+    }
+
+    unsigned char* FindUniqueLegacyToWideInRange(
+        unsigned char* start,
+        size_t length,
+        size_t* matchCount)
+    {
+        size_t count = 0;
+        unsigned char* match = nullptr;
+        if (length >= sizeof(LegacyToWidePattern))
+        {
+            const size_t finalOffset = length - sizeof(LegacyToWidePattern);
+            for (size_t offset = 0; offset <= finalOffset; ++offset)
+            {
+                if (!MatchesLegacyToWidePattern(start + offset))
+                    continue;
+                match = start + offset;
+                ++count;
+            }
+        }
+
+        if (matchCount != nullptr)
+            *matchCount = count;
+        return count == 1 ? match : nullptr;
+    }
+
+    unsigned char* FindLegacyToWide(HMODULE game, size_t* matchCount)
+    {
+        if (matchCount != nullptr)
+            *matchCount = 0;
+        if (game == nullptr)
+            return nullptr;
+
+        auto* imageBase = reinterpret_cast<unsigned char*>(game);
+        const auto* dosHeader = reinterpret_cast<const IMAGE_DOS_HEADER*>(imageBase);
+        if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE || dosHeader->e_lfanew <= 0)
+            return nullptr;
+
+        const auto* ntHeaders = reinterpret_cast<const IMAGE_NT_HEADERS*>(
+            imageBase + dosHeader->e_lfanew);
+        if (ntHeaders->Signature != IMAGE_NT_SIGNATURE)
+            return nullptr;
+
+        const size_t imageSize = ntHeaders->OptionalHeader.SizeOfImage;
+        const IMAGE_SECTION_HEADER* section = IMAGE_FIRST_SECTION(ntHeaders);
+        unsigned char* match = nullptr;
+        size_t totalMatches = 0;
+        for (WORD index = 0; index < ntHeaders->FileHeader.NumberOfSections; ++index, ++section)
+        {
+            if ((section->Characteristics & IMAGE_SCN_MEM_EXECUTE) == 0 ||
+                section->VirtualAddress >= imageSize)
+            {
+                continue;
+            }
+
+            size_t sectionSize = section->Misc.VirtualSize;
+            const size_t available = imageSize - section->VirtualAddress;
+            if (sectionSize > available)
+                sectionSize = available;
+
+            size_t sectionMatches = 0;
+            unsigned char* sectionMatch = FindUniqueLegacyToWideInRange(
+                imageBase + section->VirtualAddress,
+                sectionSize,
+                &sectionMatches);
+            if (sectionMatches == 1 && totalMatches == 0)
+                match = sectionMatch;
+            totalMatches += sectionMatches;
+            if (totalMatches > 1)
+                match = nullptr;
+        }
+
+        if (matchCount != nullptr)
+            *matchCount = totalMatches;
+        return totalMatches == 1 ? match : nullptr;
+    }
+
+    bool RunClientSignatureLocatorSelfTest()
+    {
+        unsigned char oneMatch[] =
+        {
+            0x90,
+            0x80, 0x3D, 0x78, 0x20, 0xD9, 0x00, 0x00, 0x57, 0x8B, 0xF8, 0x57,
+            0x90,
+        };
+        size_t matches = 0;
+        if (FindUniqueLegacyToWideInRange(oneMatch, sizeof(oneMatch), &matches) != oneMatch + 1 ||
+            matches != 1)
+        {
+            return false;
+        }
+
+        unsigned char twoMatches[] =
+        {
+            0x80, 0x3D, 0x78, 0x20, 0xD9, 0x00, 0x00, 0x57, 0x8B, 0xF8, 0x57,
+            0x90,
+            0x80, 0x3D, 0x78, 0x23, 0xD9, 0x00, 0x00, 0x57, 0x8B, 0xF8, 0x57,
+        };
+        return FindUniqueLegacyToWideInRange(
+            twoMatches,
+            sizeof(twoMatches),
+            &matches) == nullptr && matches == 2;
+    }
 
     void AppendDiagnostic(const std::wstring& message)
     {
@@ -171,12 +286,21 @@ namespace
         }
 
         std::wstring recomposed;
-        if (!KoreanRenderHook::RecomposeLegacyText(
+        const bool hangulChanged = KoreanRenderHook::RecomposeLegacyText(
             source,
             sourceLength,
-            recomposed))
+            recomposed);
+        const std::wstring hangulOnly = recomposed;
+        bool translationChanged = KoreanRenderHook::TryAppendChatTranslation(recomposed);
+        if (!hangulChanged && !translationChanged)
         {
             return -1;
+        }
+        if (recomposed.size() >= static_cast<size_t>(destinationCapacity) &&
+            translationChanged)
+        {
+            recomposed = hangulOnly;
+            translationChanged = false;
         }
         if (recomposed.size() >= static_cast<size_t>(destinationCapacity))
             return -1;
@@ -364,7 +488,9 @@ namespace
             return OriginalTextOutA(dc, x, y, text, length);
 
         std::wstring recomposed;
-        if (!KoreanRenderHook::RecomposeLegacyText(text, length, recomposed))
+        const bool hangulChanged = KoreanRenderHook::RecomposeLegacyText(text, length, recomposed);
+        const bool translationChanged = KoreanRenderHook::TryAppendChatTranslation(recomposed);
+        if (!hangulChanged && !translationChanged)
             return OriginalTextOutA(dc, x, y, text, length);
         LogConversion(text, length, recomposed);
         const ScopedCompleteFont font(dc);
@@ -377,7 +503,9 @@ namespace
             return OriginalTextOutW(dc, x, y, text, length);
 
         std::wstring recomposed;
-        if (!KoreanRenderHook::RecomposeLegacyWideText(text, length, recomposed))
+        const bool hangulChanged = KoreanRenderHook::RecomposeLegacyWideText(text, length, recomposed);
+        const bool translationChanged = KoreanRenderHook::TryAppendChatTranslation(recomposed);
+        if (!hangulChanged && !translationChanged)
             return OriginalTextOutW(dc, x, y, text, length);
         LogWideConversion(text, length, recomposed);
         const ScopedCompleteFont font(dc);
@@ -390,7 +518,9 @@ namespace
             return OriginalGetTextExtentPoint32A(dc, text, length, size);
 
         std::wstring recomposed;
-        if (!KoreanRenderHook::RecomposeLegacyText(text, length, recomposed))
+        const bool hangulChanged = KoreanRenderHook::RecomposeLegacyText(text, length, recomposed);
+        const bool translationChanged = KoreanRenderHook::TryAppendChatTranslation(recomposed);
+        if (!hangulChanged && !translationChanged)
             return OriginalGetTextExtentPoint32A(dc, text, length, size);
         const ScopedCompleteFont font(dc);
         return SystemGetTextExtentPoint32W(
@@ -406,7 +536,9 @@ namespace
             return OriginalGetTextExtentPoint32W(dc, text, length, size);
 
         std::wstring recomposed;
-        if (!KoreanRenderHook::RecomposeLegacyWideText(text, length, recomposed))
+        const bool hangulChanged = KoreanRenderHook::RecomposeLegacyWideText(text, length, recomposed);
+        const bool translationChanged = KoreanRenderHook::TryAppendChatTranslation(recomposed);
+        if (!hangulChanged && !translationChanged)
             return OriginalGetTextExtentPoint32W(dc, text, length, size);
         const ScopedCompleteFont font(dc);
         return SystemGetTextExtentPoint32W(
@@ -492,14 +624,16 @@ namespace
         if (game == nullptr || gdi == nullptr)
             return false;
 
-        auto* legacyToWide = reinterpret_cast<unsigned char*>(game) +
-            LegacyToWideRva;
-        if (std::memcmp(
-            legacyToWide,
-            LegacyToWideSignature,
-            sizeof(LegacyToWideSignature)) != 0)
+        size_t signatureMatches = 0;
+        auto* legacyToWide = FindLegacyToWide(game, &signatureMatches);
+        if (legacyToWide == nullptr)
         {
-            AppendDiagnostic(L"install failed: unsupported client text conversion signature");
+            wchar_t message[128] = {};
+            swprintf_s(
+                message,
+                L"install failed: unsupported client text conversion signature (matches=%zu)",
+                signatureMatches);
+            AppendDiagnostic(message);
             return false;
         }
 
@@ -564,8 +698,8 @@ namespace
             reinterpret_cast<void**>(&OriginalTextOutW));
         AppendDiagnostic(installed
             ? (fontRegistered
-                ? L"install ok v18.9: client text conversion + GDI hooks, complete font registered"
-                : L"install ok v18.9: client text conversion + GDI hooks, complete font registration failed")
+                ? L"install ok v18.16: client text conversion + GDI hooks + translation bridge, complete font registered"
+                : L"install ok v18.16: client text conversion + GDI hooks + translation bridge, complete font registration failed")
             : L"install failed: TextOutW patch");
         return installed;
     }
@@ -575,15 +709,22 @@ namespace
         wchar_t eventName[96] = {};
         swprintf_s(
             eventName,
-            L"Local\\KoreanInputFontTool.RenderHook.v18_9.%lu",
+            L"Local\\KoreanInputFontTool.RenderHook.v18_16.%lu",
             ::GetCurrentProcessId());
         HookReadyEvent = ::CreateEventW(nullptr, TRUE, FALSE, eventName);
+        KoreanRenderHook::ResetChatTranslationBridge();
         for (int attempt = 0; attempt < 120; ++attempt)
         {
             if (FindClientModule() != nullptr)
             {
-                if (InstallHooks() && HookReadyEvent != nullptr)
+                const bool installed = InstallHooks();
+                if (installed && HookReadyEvent != nullptr)
                     ::SetEvent(HookReadyEvent);
+                while (installed)
+                {
+                    KoreanRenderHook::PollChatTranslationResponses();
+                    ::Sleep(250);
+                }
                 break;
             }
             ::Sleep(500);
@@ -722,7 +863,9 @@ extern "C" void CALLBACK Inject(HWND, HINSTANCE, LPSTR commandLine, int)
 
 extern "C" void CALLBACK SelfTest(HWND, HINSTANCE, LPSTR, int)
 {
-    ::ExitProcess(KoreanRenderHook::RunRecomposerSelfTest()
+    ::ExitProcess(RunClientSignatureLocatorSelfTest() &&
+        KoreanRenderHook::RunRecomposerSelfTest() &&
+        KoreanRenderHook::RunChatTranslationBridgeSelfTest()
         ? ERROR_SUCCESS
         : ERROR_INVALID_DATA);
 }

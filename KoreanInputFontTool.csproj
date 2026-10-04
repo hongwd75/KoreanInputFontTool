@@ -17,7 +17,7 @@
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
-    <Version>18.9.0</Version>
+    <Version>18.16.0</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
@@ -32,6 +32,13 @@
     <Compile Include="LegacyKeyboardHook.cs" />
     <Compile Include="LegacyRenderDiffer.cs" />
     <Compile Include="LegacyRenderHookService.cs" />
+    <Compile Include="HookFailureDiagnosticWriter.cs" />
+    <Compile Include="ChatMessageParser.cs" />
+    <Compile Include="TranslationClient.cs" />
+    <Compile Include="ChatTranslationService.cs" />
+    <Compile Include="TranslationOptions.cs" />
+    <Compile Include="UserSecretProtector.cs" />
+    <Compile Include="TranslationSettingsForm.cs" />
     <Compile Include="AdministratorBootstrap.cs" />
     <Compile Include="LegacyMainForm.cs" />
     <Compile Include="ChatFontInstaller.cs" />
@@ -40,7 +47,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Assets\DaocLegacyFonts.br" LogicalName="KoreanInputFontTool.Assets.DaocLegacyFonts.br" />
-    <EmbeddedResource Include="Assets\KoreanRenderHook32-v18_9.dll.br" LogicalName="KoreanInputFontTool.Native.KoreanRenderHook32.dll.br" />
+    <EmbeddedResource Include="Assets\KoreanRenderHook32-v18_16.dll.br" LogicalName="KoreanInputFontTool.Native.KoreanRenderHook32.dll.br" />
   </ItemGroup>
 
   <Target Name="RequireReleaseConfiguration" BeforeTargets="PrepareForBuild" Condition="'$(Configuration)' != 'Release'">
