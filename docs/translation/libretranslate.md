@@ -35,8 +35,10 @@ Docker Desktop의 라이선스 조건은 사용 환경에 따라 다를 수 있�
 
 Docker Desktop이 설치되어 있지 않으면 자동 설치 여부를 묻습니다. `예`를 선택하면 Windows
 패키지 관리자(winget)로 공식 Docker Desktop 패키지를 설치한 뒤 서버 시작을 다시 시도합니다.
-Docker Desktop 최초 실행에서는 사용 약관 동의가 필요하며, WSL이 준비되지 않은 PC는 WSL
-설치 또는 Windows 재시작이 요구될 수 있습니다.
+앱은 `WSL 2 설치 → Windows 재시작 → Docker Desktop 설치·실행 → LibreTranslate 생성`
+순서로 준비합니다. WSL이 준비되지 않은 PC에서는 Docker Desktop보다 먼저 WSL 설치 여부를
+묻고, 동의하면 관리자 권한으로 `wsl --install`을 실행한 뒤 Windows 재시작 필요 상태를
+표시합니다. Windows를 다시 시작한 뒤 앱에서 `로컬 번역 서버 켜기`를 다시 누르세요.
 
 최초 실행은 이미지와 모델 다운로드로 시간이 걸릴 수 있습니다. 자동 실행이 실패하거나
 상태를 직접 확인하려면 아래 수동 명령을 사용하세요.

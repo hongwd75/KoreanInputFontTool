@@ -12,6 +12,14 @@ internal sealed class DockerDesktopNotInstalledException : InvalidOperationExcep
     }
 }
 
+internal sealed class WslNotInstalledException : InvalidOperationException
+{
+    public WslNotInstalledException()
+        : base("WSL 2가 설치되어 있지 않습니다.")
+    {
+    }
+}
+
 internal static class LibreTranslateLocalServerService
 {
     private const string ContainerName = "libretranslate";
@@ -26,6 +34,28 @@ internal static class LibreTranslateLocalServerService
 
     public static bool IsDockerDesktopInstalled() =>
         FindDockerCli() is not null || FindDockerDesktop() is not null;
+
+    public static async Task<bool> IsWslInstalledAsync(CancellationToken cancellationToken)
+    {
+        var wsl = FindWsl();
+        if (wsl is null)
+            return false;
+
+        var version = await RunCommandAsync(
+            wsl,
+            ["--version"],
+            TimeSpan.FromSeconds(15),
+            cancellationToken).ConfigureAwait(false);
+        if (version.ExitCode == 0)
+            return true;
+
+        var status = await RunCommandAsync(
+            wsl,
+            ["--status"],
+            TimeSpan.FromSeconds(15),
+            cancellationToken).ConfigureAwait(false);
+        return status.ExitCode == 0;
+    }
 
     public static async Task<bool> IsAvailableAsync(
         string endpoint,
@@ -177,13 +207,31 @@ internal static class LibreTranslateLocalServerService
                 "Windows를 다시 시작한 뒤 재시도하거나 설치 방법 상세를 확인하세요.");
         }
 
-        progress?.Report("Docker Desktop 설치 완료. 프로그램을 시작하고 있습니다.");
-        if (!TryStartDockerDesktop())
+        progress?.Report("Docker Desktop 설치 완료. WSL 2 실행 환경을 확인합니다.");
+    }
+
+    public static async Task InstallWslAsync(
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        var wsl = FindWsl();
+        if (wsl is null)
         {
             throw new InvalidOperationException(
-                "Docker Desktop은 설치되었지만 시작하지 못했습니다. " +
-                "시작 메뉴에서 Docker Desktop을 한 번 실행하세요.");
+                "wsl.exe를 찾을 수 없습니다. Windows 업데이트 상태를 확인하고 " +
+                "설치 방법 상세에서 WSL 수동 설치 방법을 확인하세요.");
         }
+
+        progress?.Report("WSL 2 필수 구성요소를 설치하고 있습니다.");
+        var install = await RunCommandAsync(
+            wsl,
+            ["--install"],
+            TimeSpan.FromMinutes(20),
+            cancellationToken).ConfigureAwait(false);
+        if (install.ExitCode is not (0 or 1641 or 3010))
+            EnsureSuccess(install, "WSL 2를 자동 설치하지 못했습니다.");
+
+        progress?.Report("WSL 2 설치 명령을 완료했습니다. Windows를 다시 시작해야 합니다.");
     }
 
     private static bool TryGetLocalEndpoint(string endpoint, out Uri endpointUri)
@@ -208,6 +256,9 @@ internal static class LibreTranslateLocalServerService
         IProgress<string>? progress,
         CancellationToken cancellationToken)
     {
+        if (!await IsWslInstalledAsync(cancellationToken).ConfigureAwait(false))
+            throw new WslNotInstalledException();
+
         if (!IsDockerDesktopInstalled())
             throw new DockerDesktopNotInstalledException();
 
@@ -373,6 +424,14 @@ internal static class LibreTranslateLocalServerService
             localApplicationData,
             "Microsoft", "WindowsApps", "winget.exe");
         return File.Exists(candidate) ? candidate : FindOnPath("winget.exe");
+    }
+
+    private static string? FindWsl()
+    {
+        var candidate = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.System),
+            "wsl.exe");
+        return File.Exists(candidate) ? candidate : FindOnPath("wsl.exe");
     }
 
     private static string? FindOnPath(string fileName)
