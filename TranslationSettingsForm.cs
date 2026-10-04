@@ -579,7 +579,7 @@ internal sealed class TranslationSettingsForm : Form
 
         var outputDescription = fullTranslationCheckBox.Checked
             ? "전체번역은 채널 구분 없이 한글이 없는 모든 영문 문장을 번역합니다.\r\n" +
-              "원문과 [번역] 표시는 숨기고 번역된 문장만 표시합니다."
+              "번역 완료 후 원문을 교체하며, [번역] 표시 없이 번역된 문장만 남깁니다."
             : "한글이 없는 영문 메시지만 번역하며, 원문 다음에 [번역] : 내용으로 표시합니다.";
 
         return providerDescription + "\r\n" +

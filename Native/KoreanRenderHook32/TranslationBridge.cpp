@@ -372,13 +372,16 @@ namespace
             ::ReleaseSRWLockExclusive(&TranslationLock);
         }
 
-        // The client allocates the text texture during the first conversion.
-        // Reserve invisible width immediately so an asynchronous translation is
-        // not clipped on later redraws. Full translation also hides the original.
+        // The client may retain the first converted string. Replacing a pending
+        // full-translation line with spaces discards the original cache key and
+        // can prevent the completed translation from ever being applied. Keep
+        // the original unchanged until the asynchronous response is available.
         if (displayMode == TranslationDisplayMode::Replace)
-            text.assign(PendingLayoutReservation, L' ');
-        else
-            text.append(PendingLayoutReservation, L' ');
+            return false;
+
+        // Append mode keeps the original visible and reserves enough texture
+        // width for the translated text that will be added on a later redraw.
+        text.append(PendingLayoutReservation, L' ');
         return true;
     }
 }
@@ -540,9 +543,9 @@ bool KoreanRenderHook::RunChatTranslationBridgeSelfTest()
         return false;
 
     const std::wstring fullOriginal = L"[Advice] Character : Need help";
-    std::wstring hiddenRender = fullOriginal;
-    if (!TryApplyChatTranslation(hiddenRender, TranslationDisplayMode::Replace) ||
-        hiddenRender != std::wstring(PendingLayoutReservation, L' '))
+    std::wstring pendingRender = fullOriginal;
+    if (TryApplyChatTranslation(pendingRender, TranslationDisplayMode::Replace) ||
+        pendingRender != fullOriginal)
     {
         return false;
     }
