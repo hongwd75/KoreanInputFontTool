@@ -14,6 +14,7 @@ DAoC 채팅용 한글 조합 입력과 전용 채팅 폰트를 제공하는 독�
 - `완성형 출력`에서는 길드·그룹·귓속말·일반 대화·LFG의 영문 메시지를 선택한 번역 서비스로 번역해 원문 뒤에 `[번역] : 내용`으로 표시
 - 수신 귓속말의 `캐릭터 sends, "내용"` 형식도 귓속말 채널로 인식
 - 완성형 훅 오류 분석 로그: 실행 파일과 같은 폴더의 `hook-errors.log`
+- 번역 서비스 설치 도움말: [Microsoft Translator](docs/translation/microsoft-translator.md), [Google Cloud Translation](docs/translation/google-cloud-translation.md), [LibreTranslate](docs/translation/libretranslate.md)
 - 선택한 모드의 채팅 폰트를 Atlantis/custom UI에 적용
 - DAoC 폴더, 입력 모드(두벌식/세벌식), `한글출력` 설정을 레지스트리에 저장하고 다음 실행 시 복원
 - 앱 시작 시 저장된 `한글출력` 설정의 내장 폰트를 다시 적용하여 새 버전의 폰트가 즉시 반영됨

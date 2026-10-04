@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace KoreanInputFontTool;
 
 internal sealed class TranslationSettingsForm : Form
@@ -16,6 +18,18 @@ internal sealed class TranslationSettingsForm : Form
     private readonly CheckBox whisperCheckBox = new() { Text = "귓속말", AutoSize = true };
     private readonly CheckBox sayCheckBox = new() { Text = "일반 대화", AutoSize = true };
     private readonly CheckBox lfgCheckBox = new() { Text = "LFG", AutoSize = true };
+    private readonly Label installSummaryLabel = new()
+    {
+        AutoSize = false,
+        Dock = DockStyle.Fill,
+        TextAlign = ContentAlignment.MiddleLeft
+    };
+    private readonly Button providerHelpButton = new()
+    {
+        Text = "설치 방법 상세",
+        Size = new Size(110, 30),
+        Anchor = AnchorStyles.None
+    };
     private readonly Label descriptionLabel = new()
     {
         AutoSize = false,
@@ -32,7 +46,7 @@ internal sealed class TranslationSettingsForm : Form
         MaximizeBox = false;
         MinimizeBox = false;
         ShowInTaskbar = false;
-        ClientSize = new Size(600, 455);
+        ClientSize = new Size(600, 535);
 
         providerComboBox.Items.AddRange([
             "Microsoft Translator",
@@ -61,6 +75,7 @@ internal sealed class TranslationSettingsForm : Form
         providerComboBox.SelectedIndexChanged += (_, _) => UpdateControls();
         showApiKeyCheckBox.CheckedChanged += (_, _) =>
             apiKeyTextBox.UseSystemPasswordChar = !showApiKeyCheckBox.Checked;
+        providerHelpButton.Click += OpenProviderHelp;
         UpdateControls();
     }
 
@@ -104,8 +119,9 @@ internal sealed class TranslationSettingsForm : Form
             Dock = DockStyle.Fill,
             Padding = new Padding(14),
             ColumnCount = 1,
-            RowCount = 5
+            RowCount = 6
         };
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -151,6 +167,27 @@ internal sealed class TranslationSettingsForm : Form
         serviceFields.Controls.Add(endpointTextBox, 1, 3);
         serviceFields.SetColumnSpan(endpointTextBox, 2);
 
+        var installation = new GroupBox
+        {
+            Text = "설치 방법",
+            Dock = DockStyle.Top,
+            Height = 78,
+            Padding = new Padding(10),
+            Margin = new Padding(0, 4, 0, 8)
+        };
+        var installationPanel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1
+        };
+        installationPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        installationPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
+        installationPanel.Controls.Add(installSummaryLabel, 0, 0);
+        installationPanel.Controls.Add(providerHelpButton, 1, 0);
+        installation.Controls.Add(installationPanel);
+        root.Controls.Add(installation, 0, 2);
+
         var channels = new GroupBox
         {
             Text = "번역할 채널",
@@ -167,9 +204,9 @@ internal sealed class TranslationSettingsForm : Form
         };
         channelPanel.Controls.AddRange([guildCheckBox, groupCheckBox, whisperCheckBox, sayCheckBox, lfgCheckBox]);
         channels.Controls.Add(channelPanel);
-        root.Controls.Add(channels, 0, 2);
+        root.Controls.Add(channels, 0, 3);
 
-        root.Controls.Add(descriptionLabel, 0, 3);
+        root.Controls.Add(descriptionLabel, 0, 4);
 
         var buttons = new FlowLayoutPanel
         {
@@ -183,7 +220,7 @@ internal sealed class TranslationSettingsForm : Form
         saveButton.Click += Save;
         buttons.Controls.Add(cancelButton);
         buttons.Controls.Add(saveButton);
-        root.Controls.Add(buttons, 0, 4);
+        root.Controls.Add(buttons, 0, 5);
         AcceptButton = saveButton;
         CancelButton = cancelButton;
     }
@@ -211,7 +248,47 @@ internal sealed class TranslationSettingsForm : Form
         apiKeyLabel.Text = SelectedProvider == TranslationProvider.LibreTranslate
             ? "API 키 (선택)"
             : "API 키";
+        installSummaryLabel.Text = GetProviderInstallSummary();
         descriptionLabel.Text = GetProviderDescription();
+    }
+
+    private string GetProviderInstallSummary() => SelectedProvider switch
+    {
+        TranslationProvider.MicrosoftTranslator =>
+            "Azure에서 Translator 리소스를 만든 뒤 ‘키 및 엔드포인트’의 키와 지역을 입력합니다.",
+        TranslationProvider.GoogleCloudTranslation =>
+            "Google Cloud Translation API(v2)를 활성화하고 발급한 API 키를 입력합니다.",
+        TranslationProvider.LibreTranslate =>
+            "로컬 서버는 localhost:5000을 사용합니다. 외부 서버는 주소와 필요한 경우 API 키를 입력합니다.",
+        _ => string.Empty
+    };
+
+    private void OpenProviderHelp(object? sender, EventArgs e)
+    {
+        var url = SelectedProvider switch
+        {
+            TranslationProvider.MicrosoftTranslator =>
+                "https://github.com/hongwd75/KoreanInputFontTool/blob/main/docs/translation/microsoft-translator.md",
+            TranslationProvider.GoogleCloudTranslation =>
+                "https://github.com/hongwd75/KoreanInputFontTool/blob/main/docs/translation/google-cloud-translation.md",
+            TranslationProvider.LibreTranslate =>
+                "https://github.com/hongwd75/KoreanInputFontTool/blob/main/docs/translation/libretranslate.md",
+            _ => "https://github.com/hongwd75/KoreanInputFontTool/tree/main/docs/translation"
+        };
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                this,
+                $"설치 안내 페이지를 열지 못했습니다.\r\n{url}\r\n\r\n{ex.Message}",
+                "설치 방법 상세",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+        }
     }
 
     private string GetProviderDescription()
