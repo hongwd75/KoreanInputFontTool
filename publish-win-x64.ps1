@@ -88,6 +88,8 @@ dotnet publish $project `
     /p:PlatformTarget=x64 `
     /p:PublishSingleFile=true `
     /p:PublishTrimmed=false `
+    /p:Optimize=true `
+    /p:PublishReadyToRun=false `
     /p:DebugType=None `
     /p:DebugSymbols=false
 

@@ -10,6 +10,9 @@
     <PlatformTarget>x64</PlatformTarget>
     <Platforms>x64</Platforms>
     <Configurations>Release</Configurations>
+    <Configuration>Release</Configuration>
+    <Optimize>true</Optimize>
+    <PublishReadyToRun>false</PublishReadyToRun>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>false</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>

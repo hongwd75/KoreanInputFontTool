@@ -2,6 +2,8 @@
 
 `KoreanInputFontTool`은 단독으로 배포하는 WinForms EXE입니다.
 
+모든 빌드와 배포는 항상 기능과 호환성을 유지하는 최소 용량의 Release 구성을 사용합니다. 앱은 Release/x64, 네이티브 훅은 Release/Win32로 빌드합니다. Debug 빌드, 디버그 심볼, 자체 포함 런타임, ReadyToRun은 사용하지 않습니다. 앱은 최적화된 framework-dependent single-file로 게시하며, 네이티브 훅은 MinSpace 최적화와 Brotli SmallestSize 압축을 사용합니다. WinForms 호환성을 위해 트리밍은 비활성화합니다.
+
 ```powershell
 cd <KoreanInputFontTool 프로젝트 폴더>
 .\publish-win-x64.ps1
