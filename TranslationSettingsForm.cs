@@ -400,6 +400,21 @@ internal sealed class TranslationSettingsForm : Form
                     await LibreTranslateLocalServerService.InstallDockerDesktopAsync(
                         progress,
                         cancellation.Token);
+                    installSummaryLabel.Text =
+                        "Docker Desktop 첫 실행 설정을 마친 뒤 서버 시작을 다시 누르세요.";
+                    localServerButton.Enabled = true;
+                    localServerButton.Text = "Docker 준비 후 다시 누르기";
+                    MessageBox.Show(
+                        this,
+                        "Docker Desktop 설치를 완료하고 첫 실행 화면을 열었습니다.\r\n\r\n" +
+                        "1. 라이선스 약관을 확인하고 동의하세요.\r\n" +
+                        "2. Docker 엔진이 실행될 때까지 기다리세요.\r\n" +
+                        "3. 이 설정창으로 돌아와 'Docker 준비 후 다시 누르기'를 누르세요.\r\n\r\n" +
+                        "개인 환경에서는 Docker 계정 로그인이 기본적으로 필수가 아닙니다.",
+                        "Docker Desktop 첫 실행 설정",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+                    return;
                 }
                 catch (WslNotInstalledException)
                 {

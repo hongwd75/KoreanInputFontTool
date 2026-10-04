@@ -19,8 +19,10 @@ Docker Desktop의 라이선스 조건은 사용 환경에 따라 다를 수 있�
 
 1. 관리자 PowerShell에서 `wsl --install`을 실행하고 Windows를 다시 시작합니다. 이미 WSL 2가 있다면 건너뜁니다.
 2. Docker Desktop을 설치합니다.
-3. Docker Desktop을 실행하고 Linux 컨테이너 모드가 준비될 때까지 기다립니다.
-4. PowerShell에서 `docker version`을 실행해 서버 정보가 표시되는지 확인합니다.
+3. Docker Desktop을 처음 실행하면 라이선스 약관을 직접 확인하고 동의합니다.
+4. Docker 계정 로그인은 기본적으로 필수가 아닙니다. 조직 관리자가 로그인을 강제한 환경은 조직 정책을 따릅니다.
+5. Linux 컨테이너 모드와 Docker 엔진이 준비될 때까지 기다립니다.
+6. PowerShell에서 `docker version`을 실행해 서버 정보가 표시되는지 확인합니다.
 
 ### Step 2: LibreTranslate 설치 및 실행
 
@@ -36,6 +38,9 @@ Docker Desktop의 라이선스 조건은 사용 환경에 따라 다를 수 있�
 
 Docker Desktop이 설치되어 있지 않으면 자동 설치 여부를 묻습니다. `예`를 선택하면 Windows
 패키지 관리자(winget)로 공식 Docker Desktop 패키지를 설치한 뒤 서버 시작을 다시 시도합니다.
+설치 직후에는 Docker Desktop 첫 실행 화면이 열립니다. 라이선스 약관을 직접 확인하고 동의한
+뒤 엔진 준비가 끝나면 앱으로 돌아와 `Docker 준비 후 다시 누르기`를 누릅니다. 앱은 약관에
+대신 동의하지 않습니다.
 앱은 `WSL 2 설치 → Windows 재시작 → Docker Desktop 설치·실행 → LibreTranslate 생성`
 순서로 준비합니다. WSL이 준비되지 않은 PC에서는 Docker Desktop보다 먼저 WSL 설치 여부를
 묻고, 동의하면 관리자 권한으로 `wsl --install`을 실행한 뒤 Windows 재시작 필요 상태를

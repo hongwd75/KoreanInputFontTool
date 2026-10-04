@@ -215,7 +215,14 @@ internal static class LibreTranslateLocalServerService
                 "Windows를 다시 시작한 뒤 재시도하거나 설치 방법 상세를 확인하세요.");
         }
 
-        progress?.Report("Docker Desktop 설치 완료. WSL 2 실행 환경을 확인합니다.");
+        if (!TryStartDockerDesktop())
+        {
+            throw new InvalidOperationException(
+                "Docker Desktop 설치는 완료되었지만 첫 실행 화면을 열지 못했습니다. " +
+                "시작 메뉴에서 Docker Desktop을 직접 실행하세요.");
+        }
+
+        progress?.Report("Docker Desktop 설치 완료. 첫 실행 약관 확인과 엔진 초기화가 필요합니다.");
     }
 
     public static async Task InstallWslAsync(
@@ -301,7 +308,9 @@ internal static class LibreTranslateLocalServerService
                 Summarize(version.Error));
         }
 
-        progress?.Report("Docker Desktop이 준비될 때까지 기다리고 있습니다.");
+        progress?.Report(
+            "Docker Desktop이 준비될 때까지 기다리고 있습니다. " +
+            "첫 실행 화면이 열리면 약관을 확인하고 동의하세요.");
         for (var attempt = 0; attempt < 60; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -316,7 +325,8 @@ internal static class LibreTranslateLocalServerService
 
         throw new TimeoutException(
             "Docker Desktop이 제한 시간 안에 준비되지 않았습니다. " +
-            "처음 실행했다면 Docker 사용 약관 동의와 WSL 설치를 완료하세요. " +
+            "처음 실행했다면 Docker 사용 약관을 확인하고 동의한 뒤 엔진이 실행될 때까지 기다리세요. " +
+            "Docker 계정 로그인은 기본적으로 필수가 아닙니다. " +
             "Windows 재시작이 요구된 경우 재시작 후 다시 시도하세요.");
     }
 
