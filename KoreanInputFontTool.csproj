@@ -17,7 +17,7 @@
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
-    <Version>18.18.0</Version>
+    <Version>18.19.0</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
@@ -39,6 +39,7 @@
     <Compile Include="TranslationOptions.cs" />
     <Compile Include="UserSecretProtector.cs" />
     <Compile Include="TranslationSettingsForm.cs" />
+    <Compile Include="LibreTranslateLocalServerService.cs" />
     <Compile Include="AdministratorBootstrap.cs" />
     <Compile Include="LegacyMainForm.cs" />
     <Compile Include="ChatFontInstaller.cs" />

@@ -30,6 +30,13 @@ internal sealed class TranslationSettingsForm : Form
         Size = new Size(110, 30),
         Anchor = AnchorStyles.None
     };
+    private readonly Button localServerButton = new()
+    {
+        Text = "로컬 번역 서버 켜기",
+        Size = new Size(145, 30),
+        Anchor = AnchorStyles.None,
+        Visible = false
+    };
     private readonly Label descriptionLabel = new()
     {
         AutoSize = false,
@@ -37,6 +44,7 @@ internal sealed class TranslationSettingsForm : Form
         ForeColor = SystemColors.GrayText,
         TextAlign = ContentAlignment.TopLeft
     };
+    private CancellationTokenSource? localServerCancellation;
 
     public TranslationSettingsForm(TranslationOptions options)
     {
@@ -46,7 +54,7 @@ internal sealed class TranslationSettingsForm : Form
         MaximizeBox = false;
         MinimizeBox = false;
         ShowInTaskbar = false;
-        ClientSize = new Size(600, 535);
+        ClientSize = new Size(600, 550);
 
         providerComboBox.Items.AddRange([
             "Microsoft Translator",
@@ -76,6 +84,13 @@ internal sealed class TranslationSettingsForm : Form
         showApiKeyCheckBox.CheckedChanged += (_, _) =>
             apiKeyTextBox.UseSystemPasswordChar = !showApiKeyCheckBox.Checked;
         providerHelpButton.Click += OpenProviderHelp;
+        localServerButton.Click += StartLocalServer;
+        endpointTextBox.TextChanged += (_, _) => UpdateLocalServerControls();
+        FormClosed += (_, _) =>
+        {
+            localServerCancellation?.Cancel();
+            localServerCancellation?.Dispose();
+        };
         UpdateControls();
     }
 
@@ -171,20 +186,22 @@ internal sealed class TranslationSettingsForm : Form
         {
             Text = "설치 방법",
             Dock = DockStyle.Top,
-            Height = 78,
+            Height = 88,
             Padding = new Padding(10),
             Margin = new Padding(0, 4, 0, 8)
         };
         var installationPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 2,
+            ColumnCount = 3,
             RowCount = 1
         };
         installationPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        installationPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 155));
         installationPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
         installationPanel.Controls.Add(installSummaryLabel, 0, 0);
-        installationPanel.Controls.Add(providerHelpButton, 1, 0);
+        installationPanel.Controls.Add(localServerButton, 1, 0);
+        installationPanel.Controls.Add(providerHelpButton, 2, 0);
         installation.Controls.Add(installationPanel);
         root.Controls.Add(installation, 0, 2);
 
@@ -250,18 +267,97 @@ internal sealed class TranslationSettingsForm : Form
             : "API 키";
         installSummaryLabel.Text = GetProviderInstallSummary();
         descriptionLabel.Text = GetProviderDescription();
+        UpdateLocalServerControls();
     }
 
     private string GetProviderInstallSummary() => SelectedProvider switch
     {
         TranslationProvider.MicrosoftTranslator =>
-            "Azure에서 Translator 리소스를 만든 뒤 ‘키 및 엔드포인트’의 키와 지역을 입력합니다.",
+            "Azure Translator 리소스의 API 키와 지역을 입력합니다.",
         TranslationProvider.GoogleCloudTranslation =>
-            "Google Cloud Translation API(v2)를 활성화하고 발급한 API 키를 입력합니다.",
+            "Cloud Translation API(v2)를 활성화하고 발급한 API 키를 입력합니다.",
         TranslationProvider.LibreTranslate =>
-            "로컬 서버는 localhost:5000을 사용합니다. 외부 서버는 주소와 필요한 경우 API 키를 입력합니다.",
+            "로컬 서버를 시작하거나 외부 서버 주소와 필요한 경우 API 키를 입력합니다.",
         _ => string.Empty
     };
+
+    private void UpdateLocalServerControls()
+    {
+        localServerCancellation?.Cancel();
+        localServerCancellation?.Dispose();
+        localServerCancellation = null;
+
+        var endpoint = endpointTextBox.Text.Trim();
+        var isSupportedLocalServer =
+            SelectedProvider == TranslationProvider.LibreTranslate &&
+            LibreTranslateLocalServerService.IsSupportedLocalEndpoint(endpoint);
+        localServerButton.Visible = isSupportedLocalServer;
+        if (!isSupportedLocalServer)
+            return;
+
+        localServerButton.Enabled = false;
+        localServerButton.Text = "서버 확인 중...";
+        var cancellation = new CancellationTokenSource();
+        localServerCancellation = cancellation;
+        _ = RefreshLocalServerStatusAsync(endpoint, cancellation.Token);
+    }
+
+    private async Task RefreshLocalServerStatusAsync(string endpoint, CancellationToken cancellationToken)
+    {
+        bool available;
+        try
+        {
+            available = await LibreTranslateLocalServerService
+                .IsAvailableAsync(endpoint, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+        if (cancellationToken.IsCancellationRequested || IsDisposed)
+            return;
+
+        localServerButton.Enabled = !available;
+        localServerButton.Text = available
+            ? "로컬 서버 실행 중"
+            : "로컬 번역 서버 켜기";
+    }
+
+    private async void StartLocalServer(object? sender, EventArgs e)
+    {
+        localServerCancellation?.Cancel();
+        localServerCancellation?.Dispose();
+        var cancellation = new CancellationTokenSource();
+        localServerCancellation = cancellation;
+        localServerButton.Enabled = false;
+        localServerButton.Text = "서버 시작 중...";
+
+        try
+        {
+            var progress = new Progress<string>(message => installSummaryLabel.Text = message);
+            await LibreTranslateLocalServerService.StartAsync(
+                endpointTextBox.Text.Trim(),
+                progress,
+                cancellation.Token);
+            installSummaryLabel.Text = "로컬 LibreTranslate 서버가 실행 중입니다.";
+            localServerButton.Text = "로컬 서버 실행 중";
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            installSummaryLabel.Text = "로컬 서버를 시작하지 못했습니다. 상세 설치 방법을 확인하세요.";
+            localServerButton.Enabled = true;
+            localServerButton.Text = "로컬 번역 서버 켜기";
+            MessageBox.Show(
+                this,
+                ex.Message,
+                "로컬 번역 서버 시작 실패",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+        }
+    }
 
     private void OpenProviderHelp(object? sender, EventArgs e)
     {

@@ -24,6 +24,15 @@ Docker Desktop의 라이선스 조건은 사용 환경에 따라 다를 수 있�
 
 ### Step 2: LibreTranslate 설치 및 실행
 
+한글 입력 도구에서 번역 방식을 `LibreTranslate (사용자 서버)`로 선택하고 서버 주소가
+`http://localhost:5000`인 경우, 연결되지 않은 상태에서는 `로컬 번역 서버 켜기` 버튼이
+표시됩니다. Docker Desktop이 설치되어 있다면 이 버튼이 Docker Desktop과 기존
+`libretranslate` 컨테이너를 시작합니다. 컨테이너가 없으면 영어·한국어 모델 구성으로
+자동 생성합니다.
+
+최초 실행은 이미지와 모델 다운로드로 시간이 걸릴 수 있습니다. 자동 실행이 실패하거나
+상태를 직접 확인하려면 아래 수동 명령을 사용하세요.
+
 PowerShell에서 다음 명령을 한 줄로 실행합니다.
 
 ```powershell
