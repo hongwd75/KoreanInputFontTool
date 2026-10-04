@@ -13,6 +13,7 @@ internal sealed class TranslationSettingsForm : Form
     private readonly TextBox endpointTextBox = new();
     private readonly Label regionLabel = CreateFieldLabel("지역");
     private readonly Label endpointLabel = CreateFieldLabel("서버 주소");
+    private readonly CheckBox fullTranslationCheckBox = new() { Text = "전체번역", AutoSize = true };
     private readonly CheckBox guildCheckBox = new() { Text = "길드", AutoSize = true };
     private readonly CheckBox groupCheckBox = new() { Text = "그룹", AutoSize = true };
     private readonly CheckBox whisperCheckBox = new() { Text = "귓속말", AutoSize = true };
@@ -101,6 +102,7 @@ internal sealed class TranslationSettingsForm : Form
         apiKeyTextBox.Text = options.ApiKey;
         regionTextBox.Text = options.Region;
         endpointTextBox.Text = options.Endpoint;
+        fullTranslationCheckBox.Checked = options.Channels.HasFlag(TranslationChannel.FullTranslation);
         guildCheckBox.Checked = options.Channels.HasFlag(TranslationChannel.Guild);
         groupCheckBox.Checked = options.Channels.HasFlag(TranslationChannel.Group);
         whisperCheckBox.Checked = options.Channels.HasFlag(TranslationChannel.Whisper);
@@ -110,6 +112,7 @@ internal sealed class TranslationSettingsForm : Form
         BuildLayout();
         enabledCheckBox.CheckedChanged += (_, _) => UpdateControls();
         providerComboBox.SelectedIndexChanged += (_, _) => UpdateControls();
+        fullTranslationCheckBox.CheckedChanged += (_, _) => UpdateControls();
         showApiKeyCheckBox.CheckedChanged += (_, _) =>
             apiKeyTextBox.UseSystemPasswordChar = !showApiKeyCheckBox.Checked;
         providerHelpButton.Click += OpenProviderHelp;
@@ -128,6 +131,17 @@ internal sealed class TranslationSettingsForm : Form
     {
         get
         {
+            if (fullTranslationCheckBox.Checked)
+            {
+                return new TranslationOptions(
+                    enabledCheckBox.Checked,
+                    SelectedProvider,
+                    apiKeyTextBox.Text.Trim(),
+                    regionTextBox.Text.Trim(),
+                    endpointTextBox.Text.Trim(),
+                    TranslationChannel.FullTranslation);
+            }
+
             var channels = TranslationChannel.None;
             if (guildCheckBox.Checked)
                 channels |= TranslationChannel.Guild;
@@ -246,7 +260,14 @@ internal sealed class TranslationSettingsForm : Form
             AutoSize = true,
             WrapContents = false
         };
-        channelPanel.Controls.AddRange([guildCheckBox, groupCheckBox, whisperCheckBox, sayCheckBox, lfgCheckBox]);
+        channelPanel.Controls.AddRange([
+            fullTranslationCheckBox,
+            guildCheckBox,
+            groupCheckBox,
+            whisperCheckBox,
+            sayCheckBox,
+            lfgCheckBox
+        ]);
         channels.Controls.Add(channelPanel);
         root.Controls.Add(channels, 0, 3);
 
@@ -275,11 +296,13 @@ internal sealed class TranslationSettingsForm : Form
         providerComboBox.Enabled = enabled;
         apiKeyTextBox.Enabled = enabled;
         showApiKeyCheckBox.Enabled = enabled;
-        guildCheckBox.Enabled = enabled;
-        groupCheckBox.Enabled = enabled;
-        whisperCheckBox.Enabled = enabled;
-        sayCheckBox.Enabled = enabled;
-        lfgCheckBox.Enabled = enabled;
+        fullTranslationCheckBox.Enabled = enabled;
+        var individualChannelsEnabled = enabled && !fullTranslationCheckBox.Checked;
+        guildCheckBox.Enabled = individualChannelsEnabled;
+        groupCheckBox.Enabled = individualChannelsEnabled;
+        whisperCheckBox.Enabled = individualChannelsEnabled;
+        sayCheckBox.Enabled = individualChannelsEnabled;
+        lfgCheckBox.Enabled = individualChannelsEnabled;
 
         var usesRegion = enabled && SelectedProvider == TranslationProvider.MicrosoftTranslator;
         regionLabel.Enabled = usesRegion;
@@ -554,8 +577,13 @@ internal sealed class TranslationSettingsForm : Form
             _ => string.Empty
         };
 
+        var outputDescription = fullTranslationCheckBox.Checked
+            ? "전체번역은 채널 구분 없이 한글이 없는 모든 영문 문장을 번역합니다.\r\n" +
+              "원문과 [번역] 표시는 숨기고 번역된 문장만 표시합니다."
+            : "한글이 없는 영문 메시지만 번역하며, 원문 다음에 [번역] : 내용으로 표시합니다.";
+
         return providerDescription + "\r\n" +
-               "한글이 없는 영문 메시지만 번역하며, 원문 다음에 [번역] : 내용으로 표시합니다.\r\n" +
+               outputDescription + "\r\n" +
                "게임 채팅 연결은 완성형 출력 모드에서만 동작합니다.";
     }
 

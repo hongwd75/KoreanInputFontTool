@@ -16,7 +16,9 @@ internal enum TranslationChannel
     Whisper = 4,
     Say = 8,
     Lfg = 16,
-    All = Guild | Group | Whisper | Say | Lfg
+    FullTranslation = 32,
+    All = Guild | Group | Whisper | Say | Lfg,
+    PersistedMask = All | FullTranslation
 }
 
 internal sealed record TranslationOptions(

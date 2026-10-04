@@ -126,8 +126,10 @@ internal sealed class ChatTranslationService : IDisposable
 
                     while (pending.TryPeek(out var line))
                     {
-                        if (!ChatMessageParser.TryParse(line, out var message) ||
-                            !options.Channels.HasFlag(message.Channel))
+                        var fullTranslation = options.Channels.HasFlag(
+                            TranslationChannel.FullTranslation);
+                        if (!ChatMessageParser.TryParse(line, fullTranslation, out var message) ||
+                            !fullTranslation && !options.Channels.HasFlag(message.Channel))
                         {
                             pending.Dequeue();
                             continue;
@@ -144,7 +146,9 @@ internal sealed class ChatTranslationService : IDisposable
                         if (!reportedRunning)
                         {
                             reportedRunning = true;
-                            reportStatus("게임 채팅 자동 번역 실행 중");
+                            reportStatus(fullTranslation
+                                ? "게임 전체 번역 실행 중"
+                                : "게임 채팅 자동 번역 실행 중");
                         }
                     }
 

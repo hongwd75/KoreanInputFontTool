@@ -16,10 +16,66 @@ namespace
     constexpr DWORD MaxReadBytes = 1024 * 1024;
     constexpr size_t PendingLayoutReservation = 96;
     constexpr size_t MaxDisplayedTranslationCharacters = 120;
+    constexpr DWORD FullTranslationChannel = 32;
+    constexpr DWORD TranslationModeCacheMilliseconds = 1000;
+    enum class TranslationDisplayMode : LONG
+    {
+        Disabled = 0,
+        Append = 1,
+        Replace = 2,
+    };
     SRWLOCK TranslationLock = SRWLOCK_INIT;
     std::unordered_map<std::wstring, std::wstring> TranslationCache;
     std::unordered_set<std::wstring> TranslationPending;
     unsigned long long ResponseOffset = 0;
+    volatile LONG CachedTranslationDisplayMode = 0;
+    volatile LONG LastTranslationModeCheckTick = 0;
+
+    TranslationDisplayMode GetTranslationDisplayMode()
+    {
+        const DWORD now = ::GetTickCount();
+        const DWORD previous = static_cast<DWORD>(LastTranslationModeCheckTick);
+        if (now - previous < TranslationModeCacheMilliseconds)
+        {
+            return static_cast<TranslationDisplayMode>(
+                CachedTranslationDisplayMode);
+        }
+
+        DWORD enabled = 0;
+        DWORD enabledSize = sizeof(enabled);
+        const LSTATUS enabledStatus = ::RegGetValueW(
+            HKEY_CURRENT_USER,
+            L"Software\\KoreanInputFontTool",
+            L"TranslationEnabled",
+            RRF_RT_REG_DWORD,
+            nullptr,
+            &enabled,
+            &enabledSize);
+        DWORD channels = 0;
+        DWORD channelsSize = sizeof(channels);
+        const LSTATUS channelsStatus = ::RegGetValueW(
+            HKEY_CURRENT_USER,
+            L"Software\\KoreanInputFontTool",
+            L"TranslationChannels",
+            RRF_RT_REG_DWORD,
+            nullptr,
+            &channels,
+            &channelsSize);
+
+        TranslationDisplayMode mode = TranslationDisplayMode::Disabled;
+        if (enabledStatus == ERROR_SUCCESS && enabled != 0 &&
+            channelsStatus == ERROR_SUCCESS && channels != 0)
+        {
+            mode = (channels & FullTranslationChannel) != 0
+                ? TranslationDisplayMode::Replace
+                : TranslationDisplayMode::Append;
+        }
+        ::InterlockedExchange(
+            &CachedTranslationDisplayMode,
+            static_cast<LONG>(mode));
+        ::InterlockedExchange(&LastTranslationModeCheckTick, static_cast<LONG>(now));
+        return mode;
+    }
 
     std::wstring TranslationDirectory()
     {
@@ -84,11 +140,64 @@ namespace
         return std::wstring::npos;
     }
 
-    bool IsTranslatableChatLine(const std::wstring& text)
+    bool IsTranslatableChatLine(const std::wstring& text, bool fullTranslation)
     {
         const size_t start = text.find_first_not_of(L" \t\r\n");
         if (start == std::wstring::npos || text.find(L"[번역]", start) != std::wstring::npos)
             return false;
+
+        if (fullTranslation)
+        {
+            size_t body = start;
+            if (text[start] == L'[')
+            {
+                const size_t closingBracket = text.find(L']', start + 1);
+                const size_t colon = closingBracket == std::wstring::npos
+                    ? std::wstring::npos
+                    : text.find(L':', closingBracket + 1);
+                if (colon != std::wstring::npos)
+                    body = text.find_first_not_of(L" \t", colon + 1);
+            }
+            if (body == start)
+            {
+                constexpr const wchar_t* FullChatDelimiters[] =
+                {
+                    L" sends,",
+                    L" says,",
+                };
+                for (const wchar_t* delimiter : FullChatDelimiters)
+                {
+                    const size_t position = FindInsensitive(text, start, delimiter);
+                    if (position != std::wstring::npos && position > start)
+                    {
+                        body = text.find_first_not_of(
+                            L" \t",
+                            position + wcslen(delimiter));
+                        break;
+                    }
+                }
+            }
+            if (body == std::wstring::npos)
+                return false;
+
+            bool hasEnglish = false;
+            for (size_t index = body; index < text.size(); ++index)
+            {
+                const wchar_t value = text[index];
+                if ((value >= L'A' && value <= L'Z') ||
+                    (value >= L'a' && value <= L'z'))
+                {
+                    hasEnglish = true;
+                }
+                if ((value >= 0x1100 && value <= 0x11FF) ||
+                    (value >= 0x3130 && value <= 0x318F) ||
+                    (value >= 0xAC00 && value <= 0xD7A3))
+                {
+                    return false;
+                }
+            }
+            return hasEnglish;
+        }
 
         constexpr const wchar_t* Prefixes[] =
         {
@@ -209,6 +318,69 @@ namespace
         ::CloseHandle(file);
         return succeeded;
     }
+
+    bool TryApplyChatTranslation(
+        std::wstring& text,
+        TranslationDisplayMode displayMode)
+    {
+        if (displayMode == TranslationDisplayMode::Disabled ||
+            !IsTranslatableChatLine(
+                text,
+                displayMode == TranslationDisplayMode::Replace))
+        {
+            return false;
+        }
+
+        const std::wstring original = text;
+        std::wstring translated;
+        bool shouldWrite = false;
+        ::AcquireSRWLockExclusive(&TranslationLock);
+        const auto cached = TranslationCache.find(original);
+        if (cached != TranslationCache.end())
+        {
+            translated = cached->second;
+        }
+        else
+        {
+            shouldWrite = TranslationPending.insert(original).second;
+        }
+        ::ReleaseSRWLockExclusive(&TranslationLock);
+
+        if (!translated.empty())
+        {
+            if (translated.size() > MaxDisplayedTranslationCharacters)
+            {
+                translated.resize(MaxDisplayedTranslationCharacters - 1);
+                translated += L'…';
+            }
+            if (displayMode == TranslationDisplayMode::Replace)
+            {
+                text = translated;
+            }
+            else
+            {
+                text += L" [번역] : ";
+                text += translated;
+            }
+            return true;
+        }
+
+        if (shouldWrite && !AppendRecord(QueuePath(L"requests"), original, L""))
+        {
+            ::AcquireSRWLockExclusive(&TranslationLock);
+            TranslationPending.erase(original);
+            ::ReleaseSRWLockExclusive(&TranslationLock);
+        }
+
+        // The client allocates the text texture during the first conversion.
+        // Reserve invisible width immediately so an asynchronous translation is
+        // not clipped on later redraws. Full translation also hides the original.
+        if (displayMode == TranslationDisplayMode::Replace)
+            text.assign(PendingLayoutReservation, L' ');
+        else
+            text.append(PendingLayoutReservation, L' ');
+        return true;
+    }
 }
 
 void KoreanRenderHook::ResetChatTranslationBridge()
@@ -229,48 +401,7 @@ void KoreanRenderHook::ResetChatTranslationBridge()
 
 bool KoreanRenderHook::TryAppendChatTranslation(std::wstring& text)
 {
-    if (!IsTranslatableChatLine(text))
-        return false;
-
-    const std::wstring original = text;
-    std::wstring translated;
-    bool shouldWrite = false;
-    ::AcquireSRWLockExclusive(&TranslationLock);
-    const auto cached = TranslationCache.find(original);
-    if (cached != TranslationCache.end())
-    {
-        translated = cached->second;
-    }
-    else
-    {
-        shouldWrite = TranslationPending.insert(original).second;
-    }
-    ::ReleaseSRWLockExclusive(&TranslationLock);
-
-    if (!translated.empty())
-    {
-        if (translated.size() > MaxDisplayedTranslationCharacters)
-        {
-            translated.resize(MaxDisplayedTranslationCharacters - 1);
-            translated += L'…';
-        }
-        text += L" [번역] : ";
-        text += translated;
-        return true;
-    }
-
-    if (shouldWrite && !AppendRecord(QueuePath(L"requests"), original, L""))
-    {
-        ::AcquireSRWLockExclusive(&TranslationLock);
-        TranslationPending.erase(original);
-        ::ReleaseSRWLockExclusive(&TranslationLock);
-    }
-
-    // The client allocates the chat text texture during the first conversion.
-    // Reserve invisible width immediately so an asynchronous translation is not
-    // clipped to the original English line's texture bounds on later redraws.
-    text.append(PendingLayoutReservation, L' ');
-    return true;
+    return TryApplyChatTranslation(text, GetTranslationDisplayMode());
 }
 
 void KoreanRenderHook::PollChatTranslationResponses()
@@ -370,24 +501,29 @@ void KoreanRenderHook::PollChatTranslationResponses()
 bool KoreanRenderHook::RunChatTranslationBridgeSelfTest()
 {
     const bool parsingSucceeded =
-        IsTranslatableChatLine(L"[Guild] Character : Need healer") &&
-        IsTranslatableChatLine(L"[LFG] Character : RvR group needs tank") &&
-        IsTranslatableChatLine(L"[Group] 이름 : Meet at north gate") &&
-        IsTranslatableChatLine(L"nodeoccu sends, \"hi\"") &&
-        IsTranslatableChatLine(L"NodeOccu SENDS, \"meet at north gate\"") &&
-        IsTranslatableChatLine(L"nodeoccu says, \"hello everyone\"") &&
-        IsTranslatableChatLine(L"NodeOccu SAYS, \"meet at the keep\"") &&
-        !IsTranslatableChatLine(L"[Guild] Character : 안녕하세요") &&
-        !IsTranslatableChatLine(L"nodeoccu sends, \"안녕하세요\"") &&
-        !IsTranslatableChatLine(L"nodeoccu says, \"안녕하세요\"") &&
-        !IsTranslatableChatLine(L"[Advice] Character : Need help");
+        IsTranslatableChatLine(L"[Guild] Character : Need healer", false) &&
+        IsTranslatableChatLine(L"[LFG] Character : RvR group needs tank", false) &&
+        IsTranslatableChatLine(L"[Group] 이름 : Meet at north gate", false) &&
+        IsTranslatableChatLine(L"nodeoccu sends, \"hi\"", false) &&
+        IsTranslatableChatLine(L"NodeOccu SENDS, \"meet at north gate\"", false) &&
+        IsTranslatableChatLine(L"nodeoccu says, \"hello everyone\"", false) &&
+        IsTranslatableChatLine(L"NodeOccu SAYS, \"meet at the keep\"", false) &&
+        !IsTranslatableChatLine(L"[Guild] Character : 안녕하세요", false) &&
+        !IsTranslatableChatLine(L"nodeoccu sends, \"안녕하세요\"", false) &&
+        !IsTranslatableChatLine(L"nodeoccu says, \"안녕하세요\"", false) &&
+        !IsTranslatableChatLine(L"[Advice] Character : Need help", false) &&
+        IsTranslatableChatLine(L"[Advice] Character : Need help", true) &&
+        IsTranslatableChatLine(L"[Group] 이름 : Meet at north gate", true) &&
+        !IsTranslatableChatLine(L"[Group] Character : 안녕하세요", true) &&
+        IsTranslatableChatLine(L"You have entered Camelot.", true) &&
+        !IsTranslatableChatLine(L"You have entered 카멜롯.", true);
     if (!parsingSucceeded)
         return false;
 
     ResetChatTranslationBridge();
     const std::wstring original = L"[LFG] Character : Meet at north gate";
     std::wstring firstRender = original;
-    if (!TryAppendChatTranslation(firstRender) ||
+    if (!TryApplyChatTranslation(firstRender, TranslationDisplayMode::Append) ||
         firstRender.size() != original.size() + PendingLayoutReservation)
         return false;
     if (!AppendRecord(QueuePath(L"responses"), original, L"북문에서 만나기"))
@@ -395,8 +531,30 @@ bool KoreanRenderHook::RunChatTranslationBridgeSelfTest()
 
     PollChatTranslationResponses();
     std::wstring translatedRender = original;
-    const bool appended = TryAppendChatTranslation(translatedRender) &&
+    const bool appended = TryApplyChatTranslation(
+        translatedRender,
+        TranslationDisplayMode::Append) &&
         translatedRender == original + L" [번역] : 북문에서 만나기";
     ResetChatTranslationBridge();
-    return appended;
+    if (!appended)
+        return false;
+
+    const std::wstring fullOriginal = L"[Advice] Character : Need help";
+    std::wstring hiddenRender = fullOriginal;
+    if (!TryApplyChatTranslation(hiddenRender, TranslationDisplayMode::Replace) ||
+        hiddenRender != std::wstring(PendingLayoutReservation, L' '))
+    {
+        return false;
+    }
+    if (!AppendRecord(QueuePath(L"responses"), fullOriginal, L"도움이 필요합니다"))
+        return false;
+
+    PollChatTranslationResponses();
+    std::wstring replacementRender = fullOriginal;
+    const bool replaced = TryApplyChatTranslation(
+        replacementRender,
+        TranslationDisplayMode::Replace) &&
+        replacementRender == L"도움이 필요합니다";
+    ResetChatTranslationBridge();
+    return replaced;
 }

@@ -134,7 +134,9 @@ internal static class RegistrySettings
                           TranslationChannel.Say);
                 var storedChannels = channelValue == channelsBeforeLfgWasAdded
                     ? TranslationChannel.All
-                    : (TranslationChannel)channelValue & TranslationChannel.All;
+                    : (TranslationChannel)channelValue & TranslationChannel.PersistedMask;
+                if (storedChannels.HasFlag(TranslationChannel.FullTranslation))
+                    storedChannels = TranslationChannel.FullTranslation;
                 if (storedChannels != TranslationChannel.None)
                     channels = storedChannels;
             }
@@ -166,7 +168,10 @@ internal static class RegistrySettings
         key.SetValue(TranslationProviderValue, options.Provider.ToString(), RegistryValueKind.String);
         key.SetValue(TranslationRegionValue, options.Region.Trim(), RegistryValueKind.String);
         key.SetValue(TranslationEndpointValue, options.Endpoint.Trim(), RegistryValueKind.String);
-        key.SetValue(TranslationChannelsValue, (int)(options.Channels & TranslationChannel.All), RegistryValueKind.DWord);
+        var channels = options.Channels.HasFlag(TranslationChannel.FullTranslation)
+            ? TranslationChannel.FullTranslation
+            : options.Channels & TranslationChannel.All;
+        key.SetValue(TranslationChannelsValue, (int)channels, RegistryValueKind.DWord);
 
         if (string.IsNullOrWhiteSpace(options.ApiKey))
             key.DeleteValue(TranslationApiKeyValue, throwOnMissingValue: false);
