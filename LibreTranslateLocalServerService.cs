@@ -22,8 +22,9 @@ internal sealed class WslNotInstalledException : InvalidOperationException
 
 internal static class LibreTranslateLocalServerService
 {
+    internal const string LibreTranslateVersion = "1.9.6";
     private const string ContainerName = "libretranslate";
-    private const string ImageName = "libretranslate/libretranslate";
+    private const string ImageName = "libretranslate/libretranslate:v" + LibreTranslateVersion;
     private static readonly HttpClient ProbeClient = new()
     {
         Timeout = TimeSpan.FromSeconds(3)
@@ -109,9 +110,24 @@ internal static class LibreTranslateLocalServerService
             cancellationToken).ConfigureAwait(false);
         if (inspect.ExitCode == 0)
         {
+            var containerImage = await RunDockerAsync(
+                ["inspect", "--format", "{{.Config.Image}}", ContainerName],
+                TimeSpan.FromSeconds(20),
+                cancellationToken).ConfigureAwait(false);
+            EnsureSuccess(containerImage, "기존 LibreTranslate 컨테이너의 버전을 확인하지 못했습니다.");
+            var configuredImage = containerImage.Output.Trim();
+            if (!IsExpectedImageReference(configuredImage))
+            {
+                throw new InvalidOperationException(
+                    $"기존 '{ContainerName}' 컨테이너가 LibreTranslate {LibreTranslateVersion} 이미지가 아닙니다.\r\n" +
+                    $"현재 이미지: {configuredImage}\r\n" +
+                    $"필요한 이미지: {ImageName}\r\n\r\n" +
+                    "설치 방법 상세의 버전 변경 절차에 따라 기존 컨테이너를 삭제한 뒤 다시 시도하세요.");
+            }
+
             if (!string.Equals(inspect.Output.Trim(), "running", StringComparison.OrdinalIgnoreCase))
             {
-                progress?.Report("기존 LibreTranslate 컨테이너를 시작하고 있습니다.");
+                progress?.Report($"기존 LibreTranslate {LibreTranslateVersion} 컨테이너를 시작하고 있습니다.");
                 var start = await RunDockerAsync(
                     ["start", ContainerName],
                     TimeSpan.FromMinutes(2),
@@ -121,14 +137,14 @@ internal static class LibreTranslateLocalServerService
         }
         else
         {
-            progress?.Report("LibreTranslate Docker 이미지 설치 여부를 확인하고 있습니다.");
+            progress?.Report($"LibreTranslate {LibreTranslateVersion} Docker 이미지 설치 여부를 확인하고 있습니다.");
             var imageInspect = await RunDockerAsync(
                 ["image", "inspect", ImageName],
                 TimeSpan.FromSeconds(20),
                 cancellationToken).ConfigureAwait(false);
             if (imageInspect.ExitCode != 0)
             {
-                progress?.Report("LibreTranslate Docker 이미지를 다운로드하고 있습니다. 네트워크에 따라 오래 걸릴 수 있습니다.");
+                progress?.Report($"LibreTranslate {LibreTranslateVersion} Docker 이미지를 다운로드하고 있습니다. 네트워크에 따라 오래 걸릴 수 있습니다.");
                 var pull = await RunDockerAsync(
                     ["pull", ImageName],
                     TimeSpan.FromMinutes(30),
@@ -136,7 +152,7 @@ internal static class LibreTranslateLocalServerService
                 EnsureSuccess(pull, "LibreTranslate Docker 이미지를 다운로드하지 못했습니다.");
             }
 
-            progress?.Report("LibreTranslate 컨테이너를 생성하고 있습니다.");
+            progress?.Report($"LibreTranslate {LibreTranslateVersion} 컨테이너를 생성하고 있습니다.");
             var run = await RunDockerAsync(
                 [
                     "run", "-d",
@@ -250,6 +266,14 @@ internal static class LibreTranslateLocalServerService
 
         endpointUri = parsed;
         return true;
+    }
+
+    private static bool IsExpectedImageReference(string imageReference)
+    {
+        var normalized = imageReference.Trim();
+        if (normalized.StartsWith("docker.io/", StringComparison.OrdinalIgnoreCase))
+            normalized = normalized["docker.io/".Length..];
+        return string.Equals(normalized, ImageName, StringComparison.OrdinalIgnoreCase);
     }
 
     private static async Task EnsureDockerEngineAsync(

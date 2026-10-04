@@ -307,7 +307,8 @@ internal sealed class TranslationSettingsForm : Form
         TranslationProvider.GoogleCloudTranslation =>
             "Cloud Translation API(v2)를 활성화하고 발급한 API 키를 입력합니다.",
         TranslationProvider.LibreTranslate =>
-            "로컬 서버를 시작하거나 외부 서버 주소와 필요한 경우 API 키를 입력합니다.",
+            $"로컬 서버는 LibreTranslate {LibreTranslateLocalServerService.LibreTranslateVersion}으로 설치합니다. " +
+            "외부 서버는 주소와 필요한 경우 API 키를 입력합니다.",
         _ => string.Empty
     };
 

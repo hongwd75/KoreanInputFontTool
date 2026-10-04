@@ -28,7 +28,8 @@ Docker Desktop의 라이선스 조건은 사용 환경에 따라 다를 수 있�
 `http://localhost:5000`인 경우, 연결되지 않은 상태에서는 `로컬 번역 서버 켜기` 버튼이
 표시됩니다. Docker Desktop이 설치되어 있다면 이 버튼이 Docker Desktop과 기존
 `libretranslate` 컨테이너를 시작합니다. 컨테이너가 없으면 영어·한국어 모델 구성으로
-자동 생성합니다. Docker 이미지와 번역 모델을 준비하는 동안 프로그래스바와 현재 단계가
+검증된 `LibreTranslate 1.9.6` 이미지로 자동 생성합니다. 태그 없는 `latest` 이미지는
+업데이트에 따라 동작이 달라질 수 있으므로 사용하지 않습니다. Docker 이미지와 번역 모델을 준비하는 동안 프로그래스바와 현재 단계가
 표시되며, 서버 준비가 완료되면 프로그래스바가 자동으로 사라집니다.
 `초기화` 버튼은 저장 전 입력된 API 키를 지우고 서버 주소를 `http://localhost:5000`으로
 되돌립니다.
@@ -46,7 +47,7 @@ Docker Desktop이 설치되어 있지 않으면 자동 설치 여부를 묻습�
 PowerShell에서 다음 명령을 한 줄로 실행합니다.
 
 ```powershell
-docker run -d --name libretranslate -p 127.0.0.1:5000:5000 --restart unless-stopped libretranslate/libretranslate --load-only en,ko
+docker run -d --name libretranslate -p 127.0.0.1:5000:5000 --restart unless-stopped libretranslate/libretranslate:v1.9.6 --load-only en,ko
 ```
 
 최초 실행에서는 Docker 이미지와 영어·한국어 번역 모델을 내려받기 때문에 시간이 걸릴 수 있습니다.
@@ -101,6 +102,10 @@ docker logs --tail 100 libretranslate
 docker stop libretranslate
 docker rm libretranslate
 ```
+
+기존 `libretranslate` 컨테이너가 `v1.9.6`이 아닌 이미지로 만들어졌다면 앱은 버전 오류를
+표시하고 자동으로 삭제하지 않습니다. 필요한 데이터가 없는지 확인한 다음 위의 중지·삭제
+명령을 실행하고 `로컬 번역 서버 켜기`를 다시 누르면 `v1.9.6`으로 재생성됩니다.
 
 ## 2. 외부 LibreTranslate 서버
 

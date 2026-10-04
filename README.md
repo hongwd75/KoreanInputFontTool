@@ -16,7 +16,7 @@ DAoC 채팅용 한글 조합 입력과 전용 채팅 폰트를 제공하는 독�
 - 일반 대화의 `캐릭터 says, "내용"` 형식도 일반 대화 채널로 인식
 - 완성형 훅 오류 분석 로그: 실행 파일과 같은 폴더의 `hook-errors.log`
 - 번역 서비스 설치 도움말: [Microsoft Translator](docs/translation/microsoft-translator.md), [Google Cloud Translation](docs/translation/google-cloud-translation.md), [LibreTranslate](docs/translation/libretranslate.md)
-- 로컬 LibreTranslate 연결이 끊겨 있으면 설정창의 `로컬 번역 서버 켜기`로 Docker 컨테이너를 시작하거나 생성하고, 이미지·번역 모델 준비 상태를 프로그래스바와 문구로 표시
+- 로컬 LibreTranslate 연결이 끊겨 있으면 설정창의 `로컬 번역 서버 켜기`로 검증된 `LibreTranslate 1.9.6` Docker 컨테이너를 시작하거나 생성하고, 이미지·번역 모델 준비 상태를 프로그래스바와 문구로 표시
 - LibreTranslate 설정의 `초기화` 버튼으로 API 키를 삭제하고 서버 주소를 `http://localhost:5000`으로 복원
 - Docker Desktop이 없으면 `로컬 번역 서버 켜기`에서 설치 여부를 묻고, 동의 시 Windows 패키지 관리자(winget)로 자동 설치
 - 로컬 서버 준비 순서를 `WSL 2 설치 → Windows 재시작 → Docker Desktop 설치·실행 → LibreTranslate 생성`으로 강제하고, WSL이 없으면 `wsl --install` 실행 여부를 먼저 확인
