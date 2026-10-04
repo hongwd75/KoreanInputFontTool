@@ -27,14 +27,21 @@ internal sealed class TranslationSettingsForm : Form
     private readonly Button providerHelpButton = new()
     {
         Text = "설치 방법 상세",
-        Size = new Size(110, 30),
-        Anchor = AnchorStyles.None
+        Size = new Size(120, 30),
+        Anchor = AnchorStyles.Left
     };
     private readonly Button localServerButton = new()
     {
         Text = "로컬 번역 서버 켜기",
-        Size = new Size(145, 30),
-        Anchor = AnchorStyles.None,
+        Size = new Size(180, 30),
+        Anchor = AnchorStyles.Left,
+        Visible = false
+    };
+    private readonly Button resetLibreTranslateButton = new()
+    {
+        Text = "초기화",
+        Size = new Size(86, 30),
+        Anchor = AnchorStyles.Left,
         Visible = false
     };
     private readonly ProgressBar localServerProgressBar = new()
@@ -49,15 +56,15 @@ internal sealed class TranslationSettingsForm : Form
     {
         Text = "설치 방법",
         Dock = DockStyle.Top,
-        Height = 88,
+        Height = 126,
         Padding = new Padding(10),
         Margin = new Padding(0, 4, 0, 8)
     };
     private readonly TableLayoutPanel installationPanel = new()
     {
         Dock = DockStyle.Fill,
-        ColumnCount = 3,
-        RowCount = 2
+        ColumnCount = 1,
+        RowCount = 3
     };
     private readonly Label descriptionLabel = new()
     {
@@ -76,7 +83,7 @@ internal sealed class TranslationSettingsForm : Form
         MaximizeBox = false;
         MinimizeBox = false;
         ShowInTaskbar = false;
-        ClientSize = new Size(600, 550);
+        ClientSize = new Size(600, 590);
 
         providerComboBox.Items.AddRange([
             "Microsoft Translator",
@@ -107,6 +114,7 @@ internal sealed class TranslationSettingsForm : Form
             apiKeyTextBox.UseSystemPasswordChar = !showApiKeyCheckBox.Checked;
         providerHelpButton.Click += OpenProviderHelp;
         localServerButton.Click += StartLocalServer;
+        resetLibreTranslateButton.Click += ResetLibreTranslateSettings;
         endpointTextBox.TextChanged += (_, _) => UpdateLocalServerControls();
         FormClosed += (_, _) =>
         {
@@ -205,15 +213,22 @@ internal sealed class TranslationSettingsForm : Form
         serviceFields.SetColumnSpan(endpointTextBox, 2);
 
         installationPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        installationPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 155));
-        installationPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
         installationPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        installationPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
         installationPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));
         installationPanel.Controls.Add(installSummaryLabel, 0, 0);
-        installationPanel.Controls.Add(localServerButton, 1, 0);
-        installationPanel.Controls.Add(providerHelpButton, 2, 0);
-        installationPanel.Controls.Add(localServerProgressBar, 0, 1);
-        installationPanel.SetColumnSpan(localServerProgressBar, 3);
+        var installationButtons = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            Margin = Padding.Empty
+        };
+        installationButtons.Controls.Add(providerHelpButton);
+        installationButtons.Controls.Add(localServerButton);
+        installationButtons.Controls.Add(resetLibreTranslateButton);
+        installationPanel.Controls.Add(installationButtons, 0, 1);
+        installationPanel.Controls.Add(localServerProgressBar, 0, 2);
         installationGroupBox.Controls.Add(installationPanel);
         root.Controls.Add(installationGroupBox, 0, 2);
 
@@ -277,6 +292,9 @@ internal sealed class TranslationSettingsForm : Form
         apiKeyLabel.Text = SelectedProvider == TranslationProvider.LibreTranslate
             ? "API 키 (선택)"
             : "API 키";
+        var usesLibreTranslate = SelectedProvider == TranslationProvider.LibreTranslate;
+        resetLibreTranslateButton.Visible = usesLibreTranslate;
+        resetLibreTranslateButton.Enabled = enabled && usesLibreTranslate;
         installSummaryLabel.Text = GetProviderInstallSummary();
         descriptionLabel.Text = GetProviderDescription();
         UpdateLocalServerControls();
@@ -386,8 +404,15 @@ internal sealed class TranslationSettingsForm : Form
     {
         localServerProgressBar.Visible = visible;
         localServerProgressBar.MarqueeAnimationSpeed = visible ? 30 : 0;
-        installationPanel.RowStyles[1].Height = visible ? 22 : 0;
-        installationGroupBox.Height = visible ? 116 : 88;
+        installationPanel.RowStyles[2].Height = visible ? 22 : 0;
+        installationGroupBox.Height = visible ? 154 : 126;
+    }
+
+    private void ResetLibreTranslateSettings(object? sender, EventArgs e)
+    {
+        showApiKeyCheckBox.Checked = false;
+        apiKeyTextBox.Clear();
+        endpointTextBox.Text = "http://localhost:5000";
     }
 
     private void OpenProviderHelp(object? sender, EventArgs e)
@@ -427,7 +452,8 @@ internal sealed class TranslationSettingsForm : Form
             TranslationProvider.GoogleCloudTranslation =>
                 "Google Cloud Translation API 키가 필요합니다. API 활성화와 결제 설정이 필요할 수 있습니다.",
             TranslationProvider.LibreTranslate =>
-                "LibreTranslate 서버 주소를 사용합니다. 로컬 서버는 보통 API 키가 필요 없으며, 외부 서버는 API 키가 필요할 수 있습니다.",
+                "LibreTranslate 서버 주소를 사용합니다. 로컬 서버는 보통 API 키가 필요 없으며,\r\n" +
+                "외부 서버는 API 키가 필요할 수 있습니다.",
             _ => string.Empty
         };
 
