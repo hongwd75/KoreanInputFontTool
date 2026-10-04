@@ -37,6 +37,28 @@ internal sealed class TranslationSettingsForm : Form
         Anchor = AnchorStyles.None,
         Visible = false
     };
+    private readonly ProgressBar localServerProgressBar = new()
+    {
+        Dock = DockStyle.Fill,
+        Style = ProgressBarStyle.Marquee,
+        MarqueeAnimationSpeed = 30,
+        Margin = new Padding(4, 2, 4, 2),
+        Visible = false
+    };
+    private readonly GroupBox installationGroupBox = new()
+    {
+        Text = "설치 방법",
+        Dock = DockStyle.Top,
+        Height = 88,
+        Padding = new Padding(10),
+        Margin = new Padding(0, 4, 0, 8)
+    };
+    private readonly TableLayoutPanel installationPanel = new()
+    {
+        Dock = DockStyle.Fill,
+        ColumnCount = 3,
+        RowCount = 2
+    };
     private readonly Label descriptionLabel = new()
     {
         AutoSize = false,
@@ -182,28 +204,18 @@ internal sealed class TranslationSettingsForm : Form
         serviceFields.Controls.Add(endpointTextBox, 1, 3);
         serviceFields.SetColumnSpan(endpointTextBox, 2);
 
-        var installation = new GroupBox
-        {
-            Text = "설치 방법",
-            Dock = DockStyle.Top,
-            Height = 88,
-            Padding = new Padding(10),
-            Margin = new Padding(0, 4, 0, 8)
-        };
-        var installationPanel = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 3,
-            RowCount = 1
-        };
         installationPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         installationPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 155));
         installationPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
+        installationPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        installationPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));
         installationPanel.Controls.Add(installSummaryLabel, 0, 0);
         installationPanel.Controls.Add(localServerButton, 1, 0);
         installationPanel.Controls.Add(providerHelpButton, 2, 0);
-        installation.Controls.Add(installationPanel);
-        root.Controls.Add(installation, 0, 2);
+        installationPanel.Controls.Add(localServerProgressBar, 0, 1);
+        installationPanel.SetColumnSpan(localServerProgressBar, 3);
+        installationGroupBox.Controls.Add(installationPanel);
+        root.Controls.Add(installationGroupBox, 0, 2);
 
         var channels = new GroupBox
         {
@@ -286,6 +298,7 @@ internal sealed class TranslationSettingsForm : Form
         localServerCancellation?.Cancel();
         localServerCancellation?.Dispose();
         localServerCancellation = null;
+        ShowLocalServerProgress(false);
 
         var endpoint = endpointTextBox.Text.Trim();
         var isSupportedLocalServer =
@@ -331,6 +344,7 @@ internal sealed class TranslationSettingsForm : Form
         localServerCancellation = cancellation;
         localServerButton.Enabled = false;
         localServerButton.Text = "서버 시작 중...";
+        ShowLocalServerProgress(true);
 
         try
         {
@@ -357,6 +371,23 @@ internal sealed class TranslationSettingsForm : Form
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
         }
+        finally
+        {
+            if (ReferenceEquals(localServerCancellation, cancellation))
+            {
+                localServerCancellation = null;
+                cancellation.Dispose();
+                ShowLocalServerProgress(false);
+            }
+        }
+    }
+
+    private void ShowLocalServerProgress(bool visible)
+    {
+        localServerProgressBar.Visible = visible;
+        localServerProgressBar.MarqueeAnimationSpeed = visible ? 30 : 0;
+        installationPanel.RowStyles[1].Height = visible ? 22 : 0;
+        installationGroupBox.Height = visible ? 116 : 88;
     }
 
     private void OpenProviderHelp(object? sender, EventArgs e)

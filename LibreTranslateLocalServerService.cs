@@ -7,6 +7,7 @@ namespace KoreanInputFontTool;
 internal static class LibreTranslateLocalServerService
 {
     private const string ContainerName = "libretranslate";
+    private const string ImageName = "libretranslate/libretranslate";
     private static readonly HttpClient ProbeClient = new()
     {
         Timeout = TimeSpan.FromSeconds(3)
@@ -60,6 +61,7 @@ internal static class LibreTranslateLocalServerService
         progress?.Report("Docker Desktop 실행 상태를 확인하고 있습니다.");
         await EnsureDockerEngineAsync(progress, cancellationToken).ConfigureAwait(false);
 
+        progress?.Report("LibreTranslate 컨테이너 상태를 확인하고 있습니다.");
         var inspect = await RunDockerAsync(
             ["inspect", "--format", "{{.State.Status}}", ContainerName],
             TimeSpan.FromSeconds(20),
@@ -78,27 +80,47 @@ internal static class LibreTranslateLocalServerService
         }
         else
         {
-            progress?.Report("LibreTranslate 이미지와 번역 모델을 준비하고 있습니다.");
+            progress?.Report("LibreTranslate Docker 이미지 설치 여부를 확인하고 있습니다.");
+            var imageInspect = await RunDockerAsync(
+                ["image", "inspect", ImageName],
+                TimeSpan.FromSeconds(20),
+                cancellationToken).ConfigureAwait(false);
+            if (imageInspect.ExitCode != 0)
+            {
+                progress?.Report("LibreTranslate Docker 이미지를 다운로드하고 있습니다. 네트워크에 따라 오래 걸릴 수 있습니다.");
+                var pull = await RunDockerAsync(
+                    ["pull", ImageName],
+                    TimeSpan.FromMinutes(30),
+                    cancellationToken).ConfigureAwait(false);
+                EnsureSuccess(pull, "LibreTranslate Docker 이미지를 다운로드하지 못했습니다.");
+            }
+
+            progress?.Report("LibreTranslate 컨테이너를 생성하고 있습니다.");
             var run = await RunDockerAsync(
                 [
                     "run", "-d",
                     "--name", ContainerName,
                     "-p", $"127.0.0.1:{endpointUri.Port}:5000",
                     "--restart", "unless-stopped",
-                    "libretranslate/libretranslate",
+                    ImageName,
                     "--load-only", "en,ko"
                 ],
-                TimeSpan.FromMinutes(10),
+                TimeSpan.FromMinutes(3),
                 cancellationToken).ConfigureAwait(false);
             EnsureSuccess(run, "LibreTranslate 컨테이너를 만들지 못했습니다.");
         }
 
-        progress?.Report("영어·한국어 번역 모델이 준비될 때까지 기다리고 있습니다.");
+        progress?.Report("영어·한국어 번역 모델을 다운로드하고 불러오는 중입니다.");
         for (var attempt = 0; attempt < 90; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (await IsAvailableAsync(endpoint, cancellationToken).ConfigureAwait(false))
                 return;
+            if (attempt > 0 && attempt % 5 == 0)
+            {
+                progress?.Report(
+                    $"영어·한국어 번역 모델 다운로드·준비 중... {attempt * 2}초 경과");
+            }
             await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
         }
 

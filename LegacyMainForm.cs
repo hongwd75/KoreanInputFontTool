@@ -15,7 +15,7 @@ public sealed class LegacyMainForm : Form
 
     public LegacyMainForm()
     {
-        Text = "KoreanInputFontTool v18.19 x64 - 한글 입력";
+        Text = "KoreanInputFontTool v18.20 x64 - 한글 입력";
         var executableIcon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         if (executableIcon is not null)
             Icon = executableIcon;
