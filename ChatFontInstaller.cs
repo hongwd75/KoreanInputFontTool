@@ -11,6 +11,20 @@ internal static class ChatFontInstaller
     private const int ChatSmallHeight = 11;
     private const int ChatLargeHeight = 14;
     private const string BackupSuffix = ".korean-input-font-tool.original";
+    private static readonly (string Name, int Height, bool ConvertBitmap)[] CompleteUiFonts =
+    [
+        ("myriadbold", 13, false),
+        ("minion", 16, false),
+        ("button_small", 10, true),
+        ("button_large", 12, true),
+        ("brit9", 9, true),
+        ("brit9s", 9, true),
+        ("arial9", 9, true),
+        ("arial11", 11, true),
+        ("arial14", 14, true),
+        ("title", 24, true),
+        ("barb10", 10, true)
+    ];
 
     public static string Apply(string daocRoot, LegacyGlyphMode glyphMode)
     {
@@ -32,12 +46,15 @@ internal static class ChatFontInstaller
         }
 
         var patched = 0;
-        patched += PatchNamedChatFonts(
+        var patchCompleteUi = glyphMode == LegacyGlyphMode.PrecomposedHangul;
+        patched += PatchNamedFonts(
             Path.Combine(uiRoot, "atlantis", "assets.xml"),
-            targetFontName);
-        patched += PatchNamedChatFonts(
+            targetFontName,
+            patchCompleteUi);
+        patched += PatchNamedFonts(
             Path.Combine(uiRoot, "custom", "assets.xml"),
-            targetFontName);
+            targetFontName,
+            patchCompleteUi);
         patched += PatchSingleTtf(
             Path.Combine(uiRoot, "custom", "ghost_chatfont.xml"),
             "ghost_chat_font",
@@ -126,7 +143,10 @@ internal static class ChatFontInstaller
         return restored;
     }
 
-    private static int PatchNamedChatFonts(string path, string targetFontName)
+    private static int PatchNamedFonts(
+        string path,
+        string targetFontName,
+        bool patchCompleteUi)
     {
         if (!File.Exists(path))
             return 0;
@@ -134,21 +154,28 @@ internal static class ChatFontInstaller
         var xml = File.ReadAllText(path, Encoding.Latin1);
         var matched = 0;
         var changed = false;
-        foreach (var name in new[] { "chat_small", "chat_large" })
+        var profiles = new List<(string Name, int Height, bool ConvertBitmap)>
         {
-            var pattern = $"(<TTFFont\\s*>\\s*<Name>{Regex.Escape(name)}</Name>\\s*<File>)[^<]*(</File>)";
-            if (!Regex.IsMatch(xml, pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2)))
+            ("chat_small", ChatSmallHeight, false),
+            ("chat_large", ChatLargeHeight, false)
+        };
+        if (patchCompleteUi)
+            profiles.AddRange(CompleteUiFonts);
+
+        foreach (var profile in profiles)
+        {
+            if (!TryPatchFontDefinition(
+                    xml,
+                    profile.Name,
+                    targetFontName,
+                    profile.Height,
+                    profile.ConvertBitmap,
+                    out var replaced))
+            {
                 continue;
+            }
 
             matched++;
-            var replaced = Regex.Replace(
-                xml,
-                pattern,
-                $"$1fonts/{targetFontName}$2",
-                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
-                TimeSpan.FromSeconds(2));
-            var height = name == "chat_small" ? ChatSmallHeight : ChatLargeHeight;
-            replaced = ReplaceFontHeight(replaced, name, height);
             if (!string.Equals(xml, replaced, StringComparison.Ordinal))
                 changed = true;
             xml = replaced;
@@ -157,6 +184,70 @@ internal static class ChatFontInstaller
         if (changed)
             WriteWithBackup(path, xml);
         return matched;
+    }
+
+    private static bool TryPatchFontDefinition(
+        string xml,
+        string name,
+        string targetFontName,
+        int height,
+        bool convertBitmap,
+        out string replaced)
+    {
+        var ttfPattern = $"(<TTFFont\\s*>\\s*<Name>{Regex.Escape(name)}</Name>\\s*<File>)[^<]*(</File>)";
+        if (Regex.IsMatch(
+                xml,
+                ttfPattern,
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+                TimeSpan.FromSeconds(2)))
+        {
+            replaced = Regex.Replace(
+                xml,
+                ttfPattern,
+                $"$1fonts/{targetFontName}$2",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+                TimeSpan.FromSeconds(2));
+            replaced = ReplaceFontHeight(replaced, name, height);
+            return true;
+        }
+
+        if (!convertBitmap)
+        {
+            replaced = xml;
+            return false;
+        }
+
+        var bitmapPattern =
+            $"(?<indent>^[ \\t]*)<Font\\s*>\\s*<Name>{Regex.Escape(name)}</Name>\\s*" +
+            "<File>[^<]*</File>\\s*</Font>";
+        var match = Regex.Match(
+            xml,
+            bitmapPattern,
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Multiline,
+            TimeSpan.FromSeconds(2));
+        if (!match.Success)
+        {
+            replaced = xml;
+            return false;
+        }
+
+        var indent = match.Groups["indent"].Value;
+        var newLine = xml.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+        var definition =
+            $"{indent}<TTFFont>{newLine}" +
+            $"{indent}    <Name>{name}</Name>{newLine}" +
+            $"{indent}    <File>fonts/{targetFontName}</File>{newLine}" +
+            $"{indent}    <Height>{height}</Height>{newLine}" +
+            $"{indent}    <Antialiased>true</Antialiased>{newLine}" +
+            $"{indent}    <Hint>2</Hint>{newLine}" +
+            $"{indent}</TTFFont>";
+        replaced = Regex.Replace(
+            xml,
+            bitmapPattern,
+            _ => definition,
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Multiline,
+            TimeSpan.FromSeconds(2));
+        return true;
     }
 
     private static int PatchSingleTtf(string path, string name, string targetFontName)

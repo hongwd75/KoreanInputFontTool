@@ -32,7 +32,7 @@
 
 ## 폰트 적용 흐름
 
-KDAOC 원본, 확장 폰트, KDAOC 영문에 D2Coding 완성형 한글을 합친 폰트는 `Assets\DaocLegacyFonts.br` 한 개로 공동 압축되어 EXE에 포함됩니다. 선택한 폰트만 복원하여 게임의 공통·Atlantis·custom 폰트 폴더에 `korean-font.ttf`로 배치합니다. Atlantis/custom XML의 `chat_small`, `chat_large`, `ghost_chat_font` 선언만 수정하며, XML 원본은 `.korean-input-font-tool.original`로 백업합니다.
+KDAOC 원본, 확장 폰트, KDAOC 영문에 D2Coding 완성형 한글을 합친 폰트는 `Assets\DaocLegacyFonts.br` 한 개로 공동 압축되어 EXE에 포함됩니다. 선택한 폰트만 복원하여 게임의 공통·Atlantis·custom 폰트 폴더에 배치합니다. KDAOC/확장 모드는 채팅 폰트만 수정하고, 완성형 모드는 캐릭터 선택 화면을 포함한 전역 번역 UI를 위해 `myriadbold`, `minion`, `button_*`, `brit9*`, `arial*`, `title`, `barb10` 별칭도 완성형 한글 TTF로 전환합니다. XML 원본은 `.korean-input-font-tool.original`로 백업합니다.
 
 ## 완성형 출력 흐름
 
