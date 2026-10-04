@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Net;
+using System.Text;
 
 namespace KoreanInputFontTool;
 
@@ -42,16 +43,7 @@ internal static class LibreTranslateLocalServerService
         if (wsl is null)
             return false;
 
-        var version = await RunCommandAsync(
-            wsl,
-            ["--version"],
-            TimeSpan.FromSeconds(15),
-            cancellationToken).ConfigureAwait(false);
-        if (version.ExitCode == 0)
-            return true;
-
-        var status = await RunCommandAsync(
-            wsl,
+        var status = await RunWslCommandAsync(
             ["--status"],
             TimeSpan.FromSeconds(15),
             cancellationToken).ConfigureAwait(false);
@@ -239,13 +231,22 @@ internal static class LibreTranslateLocalServerService
         }
 
         progress?.Report("WSL 2 필수 구성요소를 설치하고 있습니다.");
-        var install = await RunCommandAsync(
-            wsl,
+        var install = await RunWslCommandAsync(
             ["--install"],
             TimeSpan.FromMinutes(20),
             cancellationToken).ConfigureAwait(false);
         if (install.ExitCode is not (0 or 1641 or 3010))
-            EnsureSuccess(install, "WSL 2를 자동 설치하지 못했습니다.");
+        {
+            // wsl --install can install the Store package successfully and still
+            // return a generic error until Windows has restarted. Detect that
+            // partial-success state and continue to the mandatory reboot notice.
+            var version = await RunWslCommandAsync(
+                ["--version"],
+                TimeSpan.FromSeconds(15),
+                cancellationToken).ConfigureAwait(false);
+            if (version.ExitCode != 0)
+                EnsureSuccess(install, "WSL 2를 자동 설치하지 못했습니다.");
+        }
 
         progress?.Report("WSL 2 설치 명령을 완료했습니다. Windows를 다시 시작해야 합니다.");
     }
@@ -363,11 +364,23 @@ internal static class LibreTranslateLocalServerService
             timeout,
             cancellationToken).ConfigureAwait(false);
 
+    private static async Task<CommandResult> RunWslCommandAsync(
+        IReadOnlyList<string> arguments,
+        TimeSpan timeout,
+        CancellationToken cancellationToken) =>
+        await RunCommandAsync(
+            FindWsl() ?? "wsl.exe",
+            arguments,
+            timeout,
+            cancellationToken,
+            Encoding.Unicode).ConfigureAwait(false);
+
     private static async Task<CommandResult> RunCommandAsync(
         string fileName,
         IReadOnlyList<string> arguments,
         TimeSpan timeout,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Encoding? redirectedOutputEncoding = null)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -377,6 +390,11 @@ internal static class LibreTranslateLocalServerService
             RedirectStandardOutput = true,
             RedirectStandardError = true
         };
+        if (redirectedOutputEncoding is not null)
+        {
+            startInfo.StandardOutputEncoding = redirectedOutputEncoding;
+            startInfo.StandardErrorEncoding = redirectedOutputEncoding;
+        }
         foreach (var argument in arguments)
             startInfo.ArgumentList.Add(argument);
 
@@ -489,7 +507,8 @@ internal static class LibreTranslateLocalServerService
         if (result.ExitCode == 0)
             return;
         throw new InvalidOperationException(
-            message + "\r\n\r\n" + Summarize(result.Error.Length > 0 ? result.Error : result.Output));
+            message + $"\r\n\r\n종료 코드: {result.ExitCode}\r\n" +
+            Summarize(result.Error.Length > 0 ? result.Error : result.Output));
     }
 
     private static string Summarize(string value)
