@@ -7,7 +7,7 @@ $ErrorActionPreference = "Stop"
 
 $project = Join-Path $PSScriptRoot "KoreanInputFontTool.csproj"
 $nativeProject = Join-Path $PSScriptRoot "Native\KoreanRenderHook32\KoreanRenderHook32.vcxproj"
-$nativeHookVersion = "18_16"
+$nativeHookVersion = "18_18"
 $nativeAsset = Join-Path $PSScriptRoot "Assets\KoreanRenderHook32-v$nativeHookVersion.dll"
 $compressedNativeAsset = "$nativeAsset.br"
 $distRoot = Join-Path $PSScriptRoot "dist"

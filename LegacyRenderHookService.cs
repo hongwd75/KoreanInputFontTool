@@ -9,9 +9,9 @@ namespace KoreanInputFontTool;
 internal sealed class LegacyRenderHookService
 {
     // Keep this value stable across application releases while the native hook ABI is unchanged.
-    internal const string HookCompatibilityVersion = "18_16";
+    internal const string HookCompatibilityVersion = "18_18";
     private const string ResourceName = "KoreanInputFontTool.Native.KoreanRenderHook32.dll.br";
-    private const string HookFileName = "KoreanRenderHook32-v18_16.dll";
+    private const string HookFileName = "KoreanRenderHook32-v18_18.dll";
     private const string GameWindowTitlePrefix = "Dark Age of Camelot";
     private static readonly string[] GameProcessNames =
     [
@@ -205,7 +205,7 @@ internal sealed class LegacyRenderHookService
     }
 
     private static string ReadyEventName(int processId) =>
-        $@"Local\KoreanInputFontTool.RenderHook.v18_16.{processId}";
+        $@"Local\KoreanInputFontTool.RenderHook.v18_18.{processId}";
 
     private string ExtractHook()
     {

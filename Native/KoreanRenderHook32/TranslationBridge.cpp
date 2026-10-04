@@ -119,13 +119,28 @@ namespace
         }
         else
         {
-            constexpr const wchar_t* WhisperDelimiter = L" sends,";
-            const size_t sends = FindInsensitive(text, start, WhisperDelimiter);
-            if (sends == std::wstring::npos || sends == start)
+            constexpr const wchar_t* ChatDelimiters[] =
+            {
+                L" sends,",
+                L" says,",
+            };
+            size_t delimiterPosition = std::wstring::npos;
+            size_t delimiterLength = 0;
+            for (const wchar_t* delimiter : ChatDelimiters)
+            {
+                const size_t position = FindInsensitive(text, start, delimiter);
+                if (position != std::wstring::npos && position > start &&
+                    (delimiterPosition == std::wstring::npos || position < delimiterPosition))
+                {
+                    delimiterPosition = position;
+                    delimiterLength = wcslen(delimiter);
+                }
+            }
+            if (delimiterPosition == std::wstring::npos)
                 return false;
             body = text.find_first_not_of(
                 L" \t",
-                sends + wcslen(WhisperDelimiter));
+                delimiterPosition + delimiterLength);
         }
         if (body == std::wstring::npos)
             return false;
@@ -360,8 +375,11 @@ bool KoreanRenderHook::RunChatTranslationBridgeSelfTest()
         IsTranslatableChatLine(L"[Group] 이름 : Meet at north gate") &&
         IsTranslatableChatLine(L"nodeoccu sends, \"hi\"") &&
         IsTranslatableChatLine(L"NodeOccu SENDS, \"meet at north gate\"") &&
+        IsTranslatableChatLine(L"nodeoccu says, \"hello everyone\"") &&
+        IsTranslatableChatLine(L"NodeOccu SAYS, \"meet at the keep\"") &&
         !IsTranslatableChatLine(L"[Guild] Character : 안녕하세요") &&
         !IsTranslatableChatLine(L"nodeoccu sends, \"안녕하세요\"") &&
+        !IsTranslatableChatLine(L"nodeoccu says, \"안녕하세요\"") &&
         !IsTranslatableChatLine(L"[Advice] Character : Need help");
     if (!parsingSucceeded)
         return false;

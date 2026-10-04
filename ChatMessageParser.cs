@@ -10,7 +10,7 @@ internal readonly record struct ParsedChatMessage(
 internal static partial class ChatMessageParser
 {
     [GeneratedRegex(
-        @"^\s*(?:\[(?<channel>Guild|Group|Whisper|Say|LFG)\]\s*[^:]+?\s*:\s*|(?<sender>[^,\r\n]+?)\s+sends,\s*)(?<message>.+?)\s*$",
+        @"^\s*(?:\[(?<channel>Guild|Group|Whisper|Say|LFG)\]\s*[^:]+?\s*:\s*|(?<sender>[^,\r\n]+?)\s+(?<verb>sends|says),\s*)(?<message>.+?)\s*$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex ChatLinePattern();
 
@@ -35,7 +35,12 @@ internal static partial class ChatMessageParser
             return false;
 
         var channel = match.Groups["sender"].Success
-            ? TranslationChannel.Whisper
+            ? match.Groups["verb"].Value.ToUpperInvariant() switch
+            {
+                "SENDS" => TranslationChannel.Whisper,
+                "SAYS" => TranslationChannel.Say,
+                _ => TranslationChannel.None
+            }
             : match.Groups["channel"].Value.ToUpperInvariant() switch
         {
             "GUILD" => TranslationChannel.Guild,

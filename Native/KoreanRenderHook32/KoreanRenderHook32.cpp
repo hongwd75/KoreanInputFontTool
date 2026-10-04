@@ -698,8 +698,8 @@ namespace
             reinterpret_cast<void**>(&OriginalTextOutW));
         AppendDiagnostic(installed
             ? (fontRegistered
-                ? L"install ok v18.16: client text conversion + GDI hooks + translation bridge, complete font registered"
-                : L"install ok v18.16: client text conversion + GDI hooks + translation bridge, complete font registration failed")
+                ? L"install ok v18.18: client text conversion + GDI hooks + translation bridge, complete font registered"
+                : L"install ok v18.18: client text conversion + GDI hooks + translation bridge, complete font registration failed")
             : L"install failed: TextOutW patch");
         return installed;
     }
@@ -709,7 +709,7 @@ namespace
         wchar_t eventName[96] = {};
         swprintf_s(
             eventName,
-            L"Local\\KoreanInputFontTool.RenderHook.v18_16.%lu",
+            L"Local\\KoreanInputFontTool.RenderHook.v18_18.%lu",
             ::GetCurrentProcessId());
         HookReadyEvent = ::CreateEventW(nullptr, TRUE, FALSE, eventName);
         KoreanRenderHook::ResetChatTranslationBridge();

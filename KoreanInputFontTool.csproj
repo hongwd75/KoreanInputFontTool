@@ -17,7 +17,7 @@
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
-    <Version>18.17.0</Version>
+    <Version>18.18.0</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
@@ -47,7 +47,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Assets\DaocLegacyFonts.br" LogicalName="KoreanInputFontTool.Assets.DaocLegacyFonts.br" />
-    <EmbeddedResource Include="Assets\KoreanRenderHook32-v18_16.dll.br" LogicalName="KoreanInputFontTool.Native.KoreanRenderHook32.dll.br" />
+    <EmbeddedResource Include="Assets\KoreanRenderHook32-v18_18.dll.br" LogicalName="KoreanInputFontTool.Native.KoreanRenderHook32.dll.br" />
   </ItemGroup>
 
   <Target Name="RequireReleaseConfiguration" BeforeTargets="PrepareForBuild" Condition="'$(Configuration)' != 'Release'">

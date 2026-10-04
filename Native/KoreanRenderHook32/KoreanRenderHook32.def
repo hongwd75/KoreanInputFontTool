@@ -1,4 +1,4 @@
-LIBRARY KoreanRenderHook32-v18_16
+LIBRARY KoreanRenderHook32-v18_18
 EXPORTS
     Inject=_Inject@16
     SelfTest=_SelfTest@16
