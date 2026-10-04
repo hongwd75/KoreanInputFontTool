@@ -8,6 +8,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace
@@ -143,6 +144,59 @@ namespace
         return std::wstring::npos;
     }
 
+    size_t FindFullTranslationBody(
+        const std::wstring& text,
+        size_t start)
+    {
+        if (start >= text.size())
+            return std::wstring::npos;
+
+        if (text[start] == L'[')
+        {
+            const size_t closingBracket = text.find(L']', start + 1);
+            const size_t colon = closingBracket == std::wstring::npos
+                ? std::wstring::npos
+                : text.find(L':', closingBracket + 1);
+            if (colon != std::wstring::npos)
+                return text.find_first_not_of(L" \t", colon + 1);
+        }
+
+        constexpr const wchar_t* ChatDelimiters[] =
+        {
+            L" sends,",
+            L" says,",
+        };
+        for (const wchar_t* delimiter : ChatDelimiters)
+        {
+            const size_t position = FindInsensitive(text, start, delimiter);
+            if (position != std::wstring::npos && position > start)
+            {
+                return text.find_first_not_of(
+                    L" \t",
+                    position + wcslen(delimiter));
+            }
+        }
+        return std::wstring::npos;
+    }
+
+    std::wstring BuildFullTranslationOutput(
+        const std::wstring& original,
+        const std::wstring& translated)
+    {
+        const size_t start = original.find_first_not_of(L" \t\r\n");
+        const size_t body = start == std::wstring::npos
+            ? std::wstring::npos
+            : FindFullTranslationBody(original, start);
+        if (body == std::wstring::npos)
+            return {};
+
+        std::wstring output = original;
+        output += L'\n';
+        output.append(original, 0, body);
+        output += translated;
+        return output;
+    }
+
     bool IsTranslatableChatLine(const std::wstring& text, bool fullTranslation)
     {
         const size_t start = text.find_first_not_of(L" \t\r\n");
@@ -153,35 +207,7 @@ namespace
 
         if (fullTranslation)
         {
-            size_t body = start;
-            if (text[start] == L'[')
-            {
-                const size_t closingBracket = text.find(L']', start + 1);
-                const size_t colon = closingBracket == std::wstring::npos
-                    ? std::wstring::npos
-                    : text.find(L':', closingBracket + 1);
-                if (colon != std::wstring::npos)
-                    body = text.find_first_not_of(L" \t", colon + 1);
-            }
-            if (body == start)
-            {
-                constexpr const wchar_t* FullChatDelimiters[] =
-                {
-                    L" sends,",
-                    L" says,",
-                };
-                for (const wchar_t* delimiter : FullChatDelimiters)
-                {
-                    const size_t position = FindInsensitive(text, start, delimiter);
-                    if (position != std::wstring::npos && position > start)
-                    {
-                        body = text.find_first_not_of(
-                            L" \t",
-                            position + wcslen(delimiter));
-                        break;
-                    }
-                }
-            }
+            const size_t body = FindFullTranslationBody(text, start);
             if (body == std::wstring::npos)
                 return false;
 
@@ -370,11 +396,14 @@ namespace
             }
             if (displayMode == TranslationDisplayMode::Replace)
             {
-                text = translated;
+                std::wstring output = BuildFullTranslationOutput(original, translated);
+                if (output.empty())
+                    return false;
+                text = std::move(output);
             }
             else
             {
-                text += L" [번역] : ";
+                text += L"\n[번역] : ";
                 text += translated;
             }
             return true;
@@ -522,6 +551,9 @@ void KoreanRenderHook::PollChatTranslationResponses()
                 TranslationCache.erase(TranslationCache.begin());
             TranslationCache[key] = value;
             TranslationExclusions.insert(value);
+            const std::wstring fullOutput = BuildFullTranslationOutput(key, value);
+            if (!fullOutput.empty())
+                TranslationExclusions.insert(fullOutput);
         }
         else
         {
@@ -553,8 +585,9 @@ bool KoreanRenderHook::RunChatTranslationBridgeSelfTest()
         IsTranslatableChatLine(L"[Broadcast] Character : Realm under attack", true) &&
         IsTranslatableChatLine(L"[Group] 이름 : Meet at north gate", true) &&
         !IsTranslatableChatLine(L"[Group] Character : 안녕하세요", true) &&
-        IsTranslatableChatLine(L"You have entered Camelot.", true) &&
-        IsTranslatableChatLine(L"Options", true) &&
+        !IsTranslatableChatLine(L"You have entered Camelot.", true) &&
+        !IsTranslatableChatLine(L"Options", true) &&
+        !IsTranslatableChatLine(L"Loyalty: +13%", true) &&
         !IsTranslatableChatLine(L"/groundassist", true) &&
         !IsTranslatableChatLine(L"  /keyboard", true) &&
         !IsTranslatableChatLine(L"You have entered 카멜롯.", true);
@@ -575,19 +608,19 @@ bool KoreanRenderHook::RunChatTranslationBridgeSelfTest()
     const bool appended = TryApplyChatTranslation(
         translatedRender,
         TranslationDisplayMode::Append) &&
-        translatedRender == original + L" [번역] : 북문에서 만나기";
+        translatedRender == original + L"\n[번역] : 북문에서 만나기";
     ResetChatTranslationBridge();
     if (!appended)
         return false;
 
-    const std::wstring fullOriginal = L"[Advice] Character : Need help";
+    const std::wstring fullOriginal = L"[LFG] PlayerOne : Need healer";
     std::wstring pendingRender = fullOriginal;
     if (TryApplyChatTranslation(pendingRender, TranslationDisplayMode::Replace) ||
         pendingRender != fullOriginal)
     {
         return false;
     }
-    if (!AppendRecord(QueuePath(L"responses"), fullOriginal, L"Help is needed"))
+    if (!AppendRecord(QueuePath(L"responses"), fullOriginal, L"Healer needed"))
         return false;
 
     PollChatTranslationResponses();
@@ -595,7 +628,8 @@ bool KoreanRenderHook::RunChatTranslationBridgeSelfTest()
     const bool replaced = TryApplyChatTranslation(
         replacementRender,
         TranslationDisplayMode::Replace) &&
-        replacementRender == L"Help is needed";
+        replacementRender ==
+            L"[LFG] PlayerOne : Need healer\n[LFG] PlayerOne : Healer needed";
     std::wstring feedbackRender = replacementRender;
     const bool feedbackSuppressed =
         !TryApplyChatTranslation(feedbackRender, TranslationDisplayMode::Replace) &&

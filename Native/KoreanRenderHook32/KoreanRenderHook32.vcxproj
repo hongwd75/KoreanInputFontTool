@@ -30,7 +30,7 @@
   <PropertyGroup>
     <OutDir>$(ProjectDir)..\..\Assets\</OutDir>
     <IntDir>$(ProjectDir)obj\$(Configuration)\</IntDir>
-    <TargetName>KoreanRenderHook32-v18_30</TargetName>
+    <TargetName>KoreanRenderHook32-v18_35</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>

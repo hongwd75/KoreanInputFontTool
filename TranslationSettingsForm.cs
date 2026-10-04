@@ -578,9 +578,9 @@ internal sealed class TranslationSettingsForm : Form
         };
 
         var outputDescription = fullTranslationCheckBox.Checked
-            ? "전체번역은 /로 시작하는 문자열을 제외한 모든 영문 UI를 번역합니다.\r\n" +
-              "번역 완료 후 원문을 교체하며, [번역] 표시 없이 번역된 문장만 남깁니다."
-            : "한글이 없는 영문 메시지만 번역하며, 원문 다음에 [번역] : 내용으로 표시합니다.";
+            ? "전체번역은 모든 영문 채팅 채널과 sends/says 대화를 번역합니다.\r\n" +
+              "원문은 첫 줄에 두고, 다음 줄에 같은 채널·이름 형식으로 번역문을 표시합니다."
+            : "한글이 없는 영문 메시지만 번역하며, 원문 다음 줄에 [번역] : 내용으로 표시합니다.";
 
         return providerDescription + "\r\n" +
                outputDescription + "\r\n" +

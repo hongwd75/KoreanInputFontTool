@@ -178,7 +178,7 @@ internal sealed class ChatTranslationService : IDisposable
                             var fullTranslation = options.Channels.HasFlag(
                                 TranslationChannel.FullTranslation);
                             reportStatus(fullTranslation
-                                ? "게임 전체 번역 실행 중"
+                                ? "전체 채팅 번역 실행 중"
                                 : "게임 채팅 자동 번역 실행 중");
                         }
                     }

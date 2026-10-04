@@ -15,7 +15,7 @@ public sealed class LegacyMainForm : Form
 
     public LegacyMainForm()
     {
-        Text = "KoreanInputFontTool v18.32 x64 - 한글 입력";
+        Text = "KoreanInputFontTool v18.35 x64 - 한글 입력";
         var executableIcon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         if (executableIcon is not null)
             Icon = executableIcon;
@@ -209,10 +209,7 @@ public sealed class LegacyMainForm : Form
         {
             var path = ChatFontInstaller.Apply(daocRootTextBox.Text.Trim(), SelectedGlyphMode);
             var action = automatic ? "자동 적용 완료" : "적용 완료";
-            var fontScope = SelectedGlyphMode == LegacyGlyphMode.PrecomposedHangul
-                ? "전체 UI 한글 폰트"
-                : "채팅 폰트";
-            statusLabel.Text = $"{SelectedGlyphModeName} {fontScope} {action}: {path}";
+            statusLabel.Text = $"{SelectedGlyphModeName} 채팅 폰트 {action}: {path}";
         }
         catch (Exception ex)
         {
