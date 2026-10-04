@@ -378,6 +378,20 @@ internal sealed class TranslationSettingsForm : Form
                         cancellation.Token);
                     break;
                 }
+                catch (FirmwareVirtualizationDisabledException ex)
+                {
+                    installSummaryLabel.Text =
+                        "BIOS/UEFI에서 CPU 가상화를 활성화한 뒤 다시 시도하세요.";
+                    localServerButton.Enabled = true;
+                    localServerButton.Text = "가상화 확인 후 다시 누르기";
+                    MessageBox.Show(
+                        this,
+                        ex.Message,
+                        "CPU 가상화 활성화 필요",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                    return;
+                }
                 catch (DockerDesktopNotInstalledException)
                 {
                     var install = MessageBox.Show(

@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Net;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace KoreanInputFontTool;
@@ -21,8 +22,21 @@ internal sealed class WslNotInstalledException : InvalidOperationException
     }
 }
 
+internal sealed class FirmwareVirtualizationDisabledException : InvalidOperationException
+{
+    public FirmwareVirtualizationDisabledException()
+        : base(
+            "CPU 가상화 기능이 BIOS/UEFI에서 꺼져 있습니다.\r\n\r\n" +
+            "AMD 시스템은 SVM Mode, Intel 시스템은 Intel Virtualization Technology(VT-x)를 " +
+            "Enabled로 변경하고 설정을 저장한 뒤 Windows를 다시 시작하세요.\r\n\r\n" +
+            "이 설정은 앱이나 Docker Desktop에서 자동으로 변경할 수 없습니다.")
+    {
+    }
+}
+
 internal static class LibreTranslateLocalServerService
 {
+    private const uint PfVirtFirmwareEnabled = 21;
     internal const string LibreTranslateVersion = "1.9.6";
     private const string ContainerName = "libretranslate";
     private const string ImageName = "libretranslate/libretranslate:v" + LibreTranslateVersion;
@@ -91,6 +105,9 @@ internal static class LibreTranslateLocalServerService
         }
         if (await IsAvailableAsync(endpoint, cancellationToken).ConfigureAwait(false))
             return;
+
+        if (!IsProcessorFeaturePresent(PfVirtFirmwareEnabled))
+            throw new FirmwareVirtualizationDisabledException();
 
         progress?.Report("Docker Desktop 실행 상태를 확인하고 있습니다.");
         await EnsureDockerEngineAsync(progress, cancellationToken).ConfigureAwait(false);
@@ -511,6 +528,10 @@ internal static class LibreTranslateLocalServerService
 
         return null;
     }
+
+    [DllImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsProcessorFeaturePresent(uint processorFeature);
 
     private static void EnsureSuccess(CommandResult result, string message)
     {

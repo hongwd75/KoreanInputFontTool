@@ -20,6 +20,7 @@ DAoC 채팅용 한글 조합 입력과 전용 채팅 폰트를 제공하는 독�
 - LibreTranslate 설정의 `초기화` 버튼으로 API 키를 삭제하고 서버 주소를 `http://localhost:5000`으로 복원
 - Docker Desktop이 없으면 `로컬 번역 서버 켜기`에서 설치 여부를 묻고, 동의 시 Windows 패키지 관리자(winget)로 자동 설치
 - Docker Desktop 설치 후에는 사용자가 첫 실행 약관을 직접 확인하고 엔진 초기화를 마친 뒤 서버 시작을 재개
+- WSL·Docker 설치 전에 BIOS/UEFI의 CPU 가상화 활성화 여부를 검사하고, 꺼져 있으면 AMD SVM/Intel VT-x 활성화 안내
 - 로컬 서버 준비 순서를 `WSL 2 설치 → Windows 재시작 → Docker Desktop 설치·실행 → LibreTranslate 생성`으로 강제하고, WSL이 없으면 `wsl --install` 실행 여부를 먼저 확인
 - WSL 설치가 재시작 전 비정상 종료 코드를 반환해도 설치된 패키지를 확인하여 재시작 안내로 이어지며, WSL의 UTF-16 오류 문구를 깨지지 않게 표시
 - 선택한 모드의 채팅 폰트를 Atlantis/custom UI에 적용

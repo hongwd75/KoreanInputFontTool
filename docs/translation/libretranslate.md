@@ -17,12 +17,13 @@ Docker Desktop의 라이선스 조건은 사용 환경에 따라 다를 수 있�
 
 ### Step 1: WSL 2와 Docker Desktop 설치
 
-1. 관리자 PowerShell에서 `wsl --install`을 실행하고 Windows를 다시 시작합니다. 이미 WSL 2가 있다면 건너뜁니다.
-2. Docker Desktop을 설치합니다.
-3. Docker Desktop을 처음 실행하면 라이선스 약관을 직접 확인하고 동의합니다.
-4. Docker 계정 로그인은 기본적으로 필수가 아닙니다. 조직 관리자가 로그인을 강제한 환경은 조직 정책을 따릅니다.
-5. Linux 컨테이너 모드와 Docker 엔진이 준비될 때까지 기다립니다.
-6. PowerShell에서 `docker version`을 실행해 서버 정보가 표시되는지 확인합니다.
+1. 작업 관리자의 `성능 → CPU → 가상화`가 `사용`인지 확인합니다. 꺼져 있다면 BIOS/UEFI에서 AMD `SVM Mode` 또는 Intel `Virtualization Technology(VT-x)`를 활성화하고 Windows를 다시 시작합니다.
+2. 관리자 PowerShell에서 `wsl --install`을 실행하고 Windows를 다시 시작합니다. 이미 WSL 2가 있다면 건너뜁니다.
+3. Docker Desktop을 설치합니다.
+4. Docker Desktop을 처음 실행하면 라이선스 약관을 직접 확인하고 동의합니다.
+5. Docker 계정 로그인은 기본적으로 필수가 아닙니다. 조직 관리자가 로그인을 강제한 환경은 조직 정책을 따릅니다.
+6. Linux 컨테이너 모드와 Docker 엔진이 준비될 때까지 기다립니다.
+7. PowerShell에서 `docker version`을 실행해 서버 정보가 표시되는지 확인합니다.
 
 ### Step 2: LibreTranslate 설치 및 실행
 
@@ -45,6 +46,8 @@ Docker Desktop이 설치되어 있지 않으면 자동 설치 여부를 묻습�
 순서로 준비합니다. WSL이 준비되지 않은 PC에서는 Docker Desktop보다 먼저 WSL 설치 여부를
 묻고, 동의하면 관리자 권한으로 `wsl --install`을 실행한 뒤 Windows 재시작 필요 상태를
 표시합니다. Windows를 다시 시작한 뒤 앱에서 `로컬 번역 서버 켜기`를 다시 누르세요.
+CPU 가상화가 BIOS/UEFI에서 꺼져 있으면 앱은 WSL·Docker 설치 전에 이를 감지하고 중단합니다.
+펌웨어 설정은 PC마다 다르며 앱에서 자동 변경할 수 없습니다.
 
 최초 실행은 이미지와 모델 다운로드로 시간이 걸릴 수 있습니다. 자동 실행이 실패하거나
 상태를 직접 확인하려면 아래 수동 명령을 사용하세요.
