@@ -40,10 +40,14 @@ internal static partial class ChatMessageParser
             if (!fullTranslation)
                 return false;
 
+            var trimmedLine = line.Trim();
+            if (trimmedLine.StartsWith('/'))
+                return false;
+
             var genericMatch = GenericChannelLinePattern().Match(line);
             var genericBody = genericMatch.Success
                 ? genericMatch.Groups["message"].Value.Trim()
-                : line.Trim();
+                : trimmedLine;
             if (!IsTranslatable(genericBody))
                 return false;
 

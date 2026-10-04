@@ -79,6 +79,8 @@ internal sealed class ChatTranslationService : IDisposable
     {
         private const int MaxRecordCharacters = 4096;
         private const int MaxReadBytes = 1024 * 1024;
+        private const int MaxRequestsPerPass = 32;
+        private const int MaxRememberedRequests = 4096;
         private readonly TranslationOptions options;
         private readonly Action<string> reportStatus;
         private readonly string requestPath;
@@ -120,12 +122,16 @@ internal sealed class ChatTranslationService : IDisposable
                 {
                     foreach (var line in ReadNewRequests())
                     {
+                        if (known.Count >= MaxRememberedRequests)
+                            known.Clear();
                         if (known.Add(line))
                             pending.Enqueue(line);
                     }
 
-                    while (pending.TryPeek(out var line))
+                    var processed = 0;
+                    while (processed < MaxRequestsPerPass && pending.TryPeek(out var line))
                     {
+                        processed++;
                         var fullTranslation = options.Channels.HasFlag(
                             TranslationChannel.FullTranslation);
                         if (!ChatMessageParser.TryParse(line, fullTranslation, out var message) ||
@@ -135,13 +141,32 @@ internal sealed class ChatTranslationService : IDisposable
                             continue;
                         }
 
-                        var translated = await TranslationClient.TranslateAsync(
-                            message.Message,
-                            options,
-                            token).ConfigureAwait(false);
-                        if (translated.Length > 0)
-                            WriteResponse(message.OriginalLine, translated);
+                        string translated;
+                        try
+                        {
+                            translated = await TranslationClient.TranslateAsync(
+                                message.Message,
+                                options,
+                                token).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException) when (token.IsCancellationRequested)
+                        {
+                            throw;
+                        }
+                        catch (Exception ex)
+                        {
+                            // Clear the native pending state and discard this
+                            // request so one failed line cannot retry forever.
+                            pending.Dequeue();
+                            WriteResponse(message.OriginalLine, string.Empty);
+                            reportStatus($"번역 오류: {ex.Message}");
+                            await Task.Delay(2_000, token).ConfigureAwait(false);
+                            continue;
+                        }
+
+                        // An empty response also clears the native pending state.
                         pending.Dequeue();
+                        WriteResponse(message.OriginalLine, translated);
 
                         if (!reportedRunning)
                         {

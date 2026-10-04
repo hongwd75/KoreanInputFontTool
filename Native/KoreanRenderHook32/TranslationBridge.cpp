@@ -16,6 +16,8 @@ namespace
     constexpr DWORD MaxReadBytes = 1024 * 1024;
     constexpr size_t PendingLayoutReservation = 96;
     constexpr size_t MaxDisplayedTranslationCharacters = 120;
+    constexpr size_t MaxPendingTranslations = 256;
+    constexpr size_t MaxRememberedTranslations = 2048;
     constexpr DWORD FullTranslationChannel = 32;
     constexpr DWORD TranslationModeCacheMilliseconds = 1000;
     enum class TranslationDisplayMode : LONG
@@ -27,6 +29,7 @@ namespace
     SRWLOCK TranslationLock = SRWLOCK_INIT;
     std::unordered_map<std::wstring, std::wstring> TranslationCache;
     std::unordered_set<std::wstring> TranslationPending;
+    std::unordered_set<std::wstring> TranslationExclusions;
     unsigned long long ResponseOffset = 0;
     volatile LONG CachedTranslationDisplayMode = 0;
     volatile LONG LastTranslationModeCheckTick = 0;
@@ -144,6 +147,8 @@ namespace
     {
         const size_t start = text.find_first_not_of(L" \t\r\n");
         if (start == std::wstring::npos || text.find(L"[번역]", start) != std::wstring::npos)
+            return false;
+        if (fullTranslation && text[start] == L'/')
             return false;
 
         if (fullTranslation)
@@ -334,17 +339,27 @@ namespace
         const std::wstring original = text;
         std::wstring translated;
         bool shouldWrite = false;
+        bool isExcluded = false;
         ::AcquireSRWLockExclusive(&TranslationLock);
-        const auto cached = TranslationCache.find(original);
-        if (cached != TranslationCache.end())
+        isExcluded = TranslationExclusions.find(original) != TranslationExclusions.end();
+        const auto cached = isExcluded
+            ? TranslationCache.end()
+            : TranslationCache.find(original);
+        if (!isExcluded && cached != TranslationCache.end())
         {
             translated = cached->second;
         }
-        else
+        else if (!isExcluded &&
+            TranslationPending.size() < MaxPendingTranslations)
         {
             shouldWrite = TranslationPending.insert(original).second;
         }
         ::ReleaseSRWLockExclusive(&TranslationLock);
+
+        // Completed outputs can still contain only Latin characters, and failed
+        // source strings must not refill the queue. Both are excluded here.
+        if (isExcluded)
+            return false;
 
         if (!translated.empty())
         {
@@ -391,6 +406,7 @@ void KoreanRenderHook::ResetChatTranslationBridge()
     ::AcquireSRWLockExclusive(&TranslationLock);
     TranslationCache.clear();
     TranslationPending.clear();
+    TranslationExclusions.clear();
     ResponseOffset = 0;
     ::ReleaseSRWLockExclusive(&TranslationLock);
 
@@ -490,11 +506,29 @@ void KoreanRenderHook::PollChatTranslationResponses()
                 bytes.data() + cursor + headerBytes + keyBytes,
                 valueBytes);
         }
+        if (value.size() > MaxDisplayedTranslationCharacters)
+        {
+            value.resize(MaxDisplayedTranslationCharacters - 1);
+            value += L'…';
+        }
 
         ::AcquireSRWLockExclusive(&TranslationLock);
         TranslationPending.erase(key);
+        if (TranslationExclusions.size() >= MaxRememberedTranslations)
+            TranslationExclusions.erase(TranslationExclusions.begin());
         if (!value.empty())
+        {
+            if (TranslationCache.size() >= MaxRememberedTranslations)
+                TranslationCache.erase(TranslationCache.begin());
             TranslationCache[key] = value;
+            TranslationExclusions.insert(value);
+        }
+        else
+        {
+            // A failed/empty response is terminal for this source during the
+            // current session so it cannot refill the request file forever.
+            TranslationExclusions.insert(key);
+        }
         ::ReleaseSRWLockExclusive(&TranslationLock);
         cursor += recordBytes;
     }
@@ -516,9 +550,13 @@ bool KoreanRenderHook::RunChatTranslationBridgeSelfTest()
         !IsTranslatableChatLine(L"nodeoccu says, \"안녕하세요\"", false) &&
         !IsTranslatableChatLine(L"[Advice] Character : Need help", false) &&
         IsTranslatableChatLine(L"[Advice] Character : Need help", true) &&
+        IsTranslatableChatLine(L"[Broadcast] Character : Realm under attack", true) &&
         IsTranslatableChatLine(L"[Group] 이름 : Meet at north gate", true) &&
         !IsTranslatableChatLine(L"[Group] Character : 안녕하세요", true) &&
         IsTranslatableChatLine(L"You have entered Camelot.", true) &&
+        IsTranslatableChatLine(L"Options", true) &&
+        !IsTranslatableChatLine(L"/groundassist", true) &&
+        !IsTranslatableChatLine(L"  /keyboard", true) &&
         !IsTranslatableChatLine(L"You have entered 카멜롯.", true);
     if (!parsingSucceeded)
         return false;
@@ -549,7 +587,7 @@ bool KoreanRenderHook::RunChatTranslationBridgeSelfTest()
     {
         return false;
     }
-    if (!AppendRecord(QueuePath(L"responses"), fullOriginal, L"도움이 필요합니다"))
+    if (!AppendRecord(QueuePath(L"responses"), fullOriginal, L"Help is needed"))
         return false;
 
     PollChatTranslationResponses();
@@ -557,7 +595,11 @@ bool KoreanRenderHook::RunChatTranslationBridgeSelfTest()
     const bool replaced = TryApplyChatTranslation(
         replacementRender,
         TranslationDisplayMode::Replace) &&
-        replacementRender == L"도움이 필요합니다";
+        replacementRender == L"Help is needed";
+    std::wstring feedbackRender = replacementRender;
+    const bool feedbackSuppressed =
+        !TryApplyChatTranslation(feedbackRender, TranslationDisplayMode::Replace) &&
+        feedbackRender == replacementRender;
     ResetChatTranslationBridge();
-    return replaced;
+    return replaced && feedbackSuppressed;
 }

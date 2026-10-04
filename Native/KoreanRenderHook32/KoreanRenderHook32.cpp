@@ -709,7 +709,7 @@ namespace
         wchar_t eventName[96] = {};
         swprintf_s(
             eventName,
-            L"Local\\KoreanInputFontTool.RenderHook.v18_29.%lu",
+            L"Local\\KoreanInputFontTool.RenderHook.v18_30.%lu",
             ::GetCurrentProcessId());
         HookReadyEvent = ::CreateEventW(nullptr, TRUE, FALSE, eventName);
         KoreanRenderHook::ResetChatTranslationBridge();
