@@ -128,10 +128,9 @@ internal sealed class ChatTranslationService : IDisposable
                             pending.Enqueue(line);
                     }
 
-                    var processed = 0;
-                    while (processed < MaxRequestsPerPass && pending.TryPeek(out var line))
+                    var batch = new List<ParsedChatMessage>(MaxRequestsPerPass);
+                    while (batch.Count < MaxRequestsPerPass && pending.TryPeek(out var line))
                     {
-                        processed++;
                         var fullTranslation = options.Channels.HasFlag(
                             TranslationChannel.FullTranslation);
                         if (!ChatMessageParser.TryParse(line, fullTranslation, out var message) ||
@@ -141,11 +140,17 @@ internal sealed class ChatTranslationService : IDisposable
                             continue;
                         }
 
-                        string translated;
+                        pending.Dequeue();
+                        batch.Add(message);
+                    }
+
+                    if (batch.Count > 0)
+                    {
+                        IReadOnlyList<string> translated;
                         try
                         {
-                            translated = await TranslationClient.TranslateAsync(
-                                message.Message,
+                            translated = await TranslationClient.TranslateBatchAsync(
+                                batch.Select(message => message.Message).ToArray(),
                                 options,
                                 token).ConfigureAwait(false);
                         }
@@ -155,22 +160,23 @@ internal sealed class ChatTranslationService : IDisposable
                         }
                         catch (Exception ex)
                         {
-                            // Clear the native pending state and discard this
-                            // request so one failed line cannot retry forever.
-                            pending.Dequeue();
-                            WriteResponse(message.OriginalLine, string.Empty);
+                            // Empty responses clear native pending entries so a
+                            // failed batch cannot be retried forever.
+                            foreach (var message in batch)
+                                WriteResponse(message.OriginalLine, string.Empty);
                             reportStatus($"번역 오류: {ex.Message}");
                             await Task.Delay(2_000, token).ConfigureAwait(false);
                             continue;
                         }
 
-                        // An empty response also clears the native pending state.
-                        pending.Dequeue();
-                        WriteResponse(message.OriginalLine, translated);
+                        for (var index = 0; index < batch.Count; index++)
+                            WriteResponse(batch[index].OriginalLine, translated[index]);
 
                         if (!reportedRunning)
                         {
                             reportedRunning = true;
+                            var fullTranslation = options.Channels.HasFlag(
+                                TranslationChannel.FullTranslation);
                             reportStatus(fullTranslation
                                 ? "게임 전체 번역 실행 중"
                                 : "게임 채팅 자동 번역 실행 중");
